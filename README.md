@@ -1,6 +1,6 @@
-# AI on the Prize - Task Tree System
+# Task Tree MCP
 
-A production-ready hierarchical task management system for Claude Code that maintains context and prioritization through lineage injection. Instead of flat task lists, tasks are organized as nodes in a tree where AI agents maintain awareness of high-level goals while working on implementation details.
+A hierarchical task management system for Claude Code that maintains context and prioritization through lineage injection. Instead of flat task lists, tasks are organized as nodes in a tree where AI agents maintain awareness of high-level goals while working on implementation details.
 
 ## 🎯 Core Mission Accomplished
 
