@@ -41,20 +41,6 @@ A hierarchical task management system for Claude Code that maintains context and
 - **Direct Lineage Only**: Simple root→current path (no siblings/branches to avoid noise)
 - **Immutable Tasks**: No edit capabilities - create new tasks when requirements change
 - **Safety-First Validation**: Completion criteria required by default with #trivial tag override
-- **Removed Complexity**: No dependency management (tree structure handles ordering naturally)
-
-## 📊 Implementation Status
-
-### ✅ **Phase 3: Intelligence Layer (Complete)**
-- **Enhanced LLM Usage Guidance**: Hierarchical planning examples and patterns
-- **Completion Criteria Validation**: Prevents premature completion claims
-- **Pattern Detection**: Identifies flat task lists and suggests hierarchical alternatives
-- **Simplified Architecture**: Removed unused dependency fields
-
-### ✅ **Phase 4: Advanced Features (Complete by Design)**
-- **Task Mutation**: Handled naturally through immutable create/cancel pattern
-- **Multi-Agent Support**: Left as user exercise (proper approach)
-- **Quality Enforcement**: Completion criteria prevent "mission accomplished" moments
 
 ## 🚀 Getting Started
 
