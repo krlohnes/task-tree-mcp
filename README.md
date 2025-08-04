@@ -59,10 +59,30 @@ A production-ready hierarchical task management system for Claude Code that main
 ## 🚀 Getting Started
 
 ### **Installation**
+
+**Prerequisites:**
 ```bash
-# Add to Claude Code globally
-claude mcp add task-tree "/path/to/venv/bin/python" "/path/to/mcp_server/server.py" -s user
+# 1. Install Python dependencies
+pip install pydantic networkx
+
+# 2. Clone or download this repository
+git clone https://github.com/your-username/ai-on-the-prize.git
+cd ai-on-the-prize
 ```
+
+**Add to Claude Code:**
+```bash
+# Option 1: Using absolute paths (recommended)
+claude mcp add task-tree "python" "/absolute/path/to/ai-on-the-prize/mcp_server/server.py" -s user
+
+# Option 2: Using virtual environment
+claude mcp add task-tree "/path/to/venv/bin/python" "/absolute/path/to/ai-on-the-prize/mcp_server/server.py" -s user
+
+# Verify installation
+claude mcp list
+```
+
+**Restart Claude Code** after installation to activate the MCP server.
 
 ### **Basic Usage**
 ```bash
