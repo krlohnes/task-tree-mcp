@@ -47,12 +47,12 @@ A hierarchical task management system for Claude Code that maintains context and
 
 **Prerequisites:**
 ```bash
-# 1. Install Python dependencies
-pip install pydantic networkx
-
-# 2. Clone or download this repository
+# 1. Clone or download this repository
 git clone https://github.com/krlohnes/task-tree-mcp.git
 cd task-tree-mcp
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
 ```
 
 **Add to Claude Code:**
