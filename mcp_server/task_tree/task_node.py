@@ -88,15 +88,6 @@ class TaskNode(BaseModel):
         self.tags.discard(tag.lower().strip())
         self.updated_at = datetime.utcnow()
     
-    def add_dependency(self, task_id: UUID) -> None:
-        """Add a dependency (this task depends on the given task)."""
-        self.depends_on.add(task_id)
-        self.updated_at = datetime.utcnow()
-    
-    def remove_dependency(self, task_id: UUID) -> None:
-        """Remove a dependency."""
-        self.depends_on.discard(task_id)
-        self.updated_at = datetime.utcnow()
     
     def mark_in_progress(self) -> None:
         """Mark task as in progress."""
@@ -126,8 +117,8 @@ class TaskNode(BaseModel):
         return len(self.child_ids) == 0
     
     def can_start(self, completed_tasks: Set[UUID]) -> bool:
-        """Check if this task can start based on dependencies."""
-        return self.depends_on.issubset(completed_tasks)
+        """Check if this task can start (always true with hierarchical structure)."""
+        return True
     
     def get_context_summary(self) -> str:
         """Get a summary string for context injection."""
