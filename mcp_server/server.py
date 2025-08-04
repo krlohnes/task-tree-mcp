@@ -222,7 +222,15 @@ Instead of flat task lists, create deep hierarchical structures:
 • Add validation siblings (✅) to every action
 • Use checkpoints (🤔) for user authorization  
 • Reference requirements: (req: parent task)
-• Go 3+ levels deep for complex tasks"""
+• Go 3+ levels deep for complex tasks
+
+**🔒 Immutability Pattern**:
+When requirements change, create new tasks instead of editing existing ones:
+❌ **Don't edit**: "Build REST API" → "Build GraphQL API"
+✅ **Do create new**: "Build REST API" → cancelled
+                      "Build GraphQL API" → new task
+
+This preserves decision history and shows why pivots happened."""
 
 
 # Create the MCP server
@@ -588,8 +596,29 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[TextCon
             
             old_status = task.status if isinstance(task.status, str) else task.status.value
             
-            # Update status
+            # Validate completion criteria before allowing completion
             if new_status == "completed":
+                # Check if task has completion criteria or #trivial tag
+                if not task.completion_criteria and "trivial" not in task.tags:
+                    return [TextContent(type="text", text=f"""❌ **Cannot Complete Task Without Criteria**
+
+📝 **{task.title}**
+
+This task cannot be marked as completed because it has no completion criteria defined.
+
+**To fix this, either:**
+1. **Add completion criteria**: What specific conditions must be met for this task to be truly done?
+2. **Tag as trivial**: Add `#trivial` tag if this is a simple task that doesn't need criteria
+
+**Why this matters:** Completion criteria prevent premature "mission accomplished" moments and ensure work is actually finished.
+
+**Examples of good criteria:**
+• Function returns expected output for test cases
+• All unit tests pass  
+• Integration verified with manual testing
+• Documentation updated with changes
+• Error handling covers edge cases""")]
+                
                 task.mark_completed()
             elif new_status == "in_progress":
                 task.mark_in_progress()

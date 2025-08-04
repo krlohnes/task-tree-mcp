@@ -58,9 +58,6 @@ class TaskNode(BaseModel):
     completion_criteria: Optional[str] = Field(None, description="Explicit criteria for task completion")
     context_weight: float = Field(default=1.0, ge=0.0, le=10.0, description="Weight for context injection")
     
-    # Dependencies
-    depends_on: Set[UUID] = Field(default_factory=set, description="Task dependencies (must complete before this)")
-    blocks: Set[UUID] = Field(default_factory=set, description="Tasks this blocks from starting")
     
     class Config:
         """Pydantic model configuration."""
