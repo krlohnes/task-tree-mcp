@@ -6,8 +6,7 @@ A hierarchical task management system for Claude Code that maintains context and
 
 **Problem**: AI agents lose sight of original goals when diving deep into implementation details, leading to context drift and forgotten priorities.
 
-**Solution**: Lineage-based context injection ensures AI agents always see the path from root objective to current task, keeping them "on the prize."
-
+**Solution**: Lineage-based context injection ensures AI agents always see the path from root objective to current task, so they won't lose the forest through the task tree.
 ## ✅ Features
 
 ### **Hierarchical Task Management**
