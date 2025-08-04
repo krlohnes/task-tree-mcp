@@ -89,6 +89,46 @@ def format_task_for_display(task: TaskNode) -> str:
     return result
 
 
+def get_hierarchical_planning_guidance() -> str:
+    """Provide guidance on hierarchical task planning patterns."""
+    return """💡 **Hierarchical Planning Tips**
+
+Instead of flat task lists, create deep hierarchical structures:
+
+❌ **Avoid**: Flat lists
+- Implement feature
+- Test feature  
+- Deploy feature
+
+✅ **Better**: Hierarchical with validation siblings
+- Implement user authentication system
+  ├─ Design JWT token structure
+  │  └─ ✅ Validate token schema against security requirements
+  ├─ Build password hashing
+  │  └─ ✅ Verify hash strength meets compliance standards
+  └─ Create session management
+     └─ ✅ Test session timeout and renewal logic
+
+🔥 **Best**: Deep hierarchy with checkpoints
+- Implement authentication system
+  ├─ Research & Design
+  │  ├─ Analyze JWT vs session-based auth
+  │  └─ ✅ Validate choice against requirements
+  ├─ 🧪 Write tests first (TDD)
+  ├─ Implementation
+  │  ├─ JWT token service
+  │  │  └─ ✅ Validate security standards
+  │  └─ Password management
+  │     └─ ✅ Test against attack patterns
+  └─ 🤔 CHECKPOINT: "Ready for integration testing?"
+
+**Key Patterns**:
+• Add validation siblings (✅) to every action
+• Use checkpoints (🤔) for user authorization  
+• Reference requirements: (req: parent task)
+• Go 3+ levels deep for complex tasks"""
+
+
 # Create the MCP server
 server = Server("task-tree")
 
@@ -410,6 +450,10 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[TextCon
             response = f"✅ **Task Created Successfully**\n\n{format_task_for_display(task)}"
             if set_as_current:
                 response += "\n\n🎯 Set as current task"
+            
+            # Add hierarchical planning guidance for root tasks
+            if not parent_id:  # Only show guidance for root tasks
+                response += "\n\n" + get_hierarchical_planning_guidance()
             
             return [TextContent(type="text", text=response)]
         

@@ -150,7 +150,7 @@ def list_tasks(
         
         for task in tasks:
             table.add_row(
-                str(task.id)[:8],
+                str(task.id),
                 task.title,
                 format_task_status(task.status),
                 format_task_priority(task.priority),
