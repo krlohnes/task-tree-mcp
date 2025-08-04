@@ -89,6 +89,102 @@ def format_task_for_display(task: TaskNode) -> str:
     return result
 
 
+def detect_flat_pattern(graph: TaskGraph, parent_id: Optional[UUID] = None) -> Dict[str, Any]:
+    """Detect if recent task creation follows flat list patterns."""
+    if parent_id:
+        parent_task = graph.get_task(parent_id)
+        if not parent_task:
+            return {"is_flat": False, "reason": "Parent not found"}
+        
+        children = [graph.get_task(child_id) for child_id in parent_task.child_ids]
+        children = [child for child in children if child]  # Filter None
+        
+        if len(children) < 2:
+            return {"is_flat": False, "reason": "Too few children to analyze"}
+        
+        # Check for flat patterns
+        flat_indicators = 0
+        total_checks = 0
+        
+        # 1. Check for sequential naming
+        sequential_names = sum(1 for child in children 
+                             if any(word in child.title.lower() 
+                                   for word in ['step', 'phase', 'part', '1', '2', '3']))
+        if sequential_names > len(children) * 0.5:  # More than half have sequential names
+            flat_indicators += 1
+        total_checks += 1
+        
+        # 2. Check for lack of validation siblings
+        validation_siblings = sum(1 for child in children 
+                                if any(word in child.title.lower() 
+                                      for word in ['validate', 'verify', 'test', 'check']))
+        if validation_siblings < len(children) * 0.3:  # Less than 30% have validation
+            flat_indicators += 1
+        total_checks += 1
+        
+        # 3. Check for shallow depth (no grandchildren)
+        has_grandchildren = sum(1 for child in children if len(child.child_ids) > 0)
+        if has_grandchildren < len(children) * 0.3:  # Less than 30% have children
+            flat_indicators += 1
+        total_checks += 1
+        
+        # 4. Check for generic action words
+        generic_actions = sum(1 for child in children 
+                            if any(child.title.lower().startswith(word) 
+                                  for word in ['do ', 'create ', 'make ', 'build ', 'implement ']))
+        if generic_actions > len(children) * 0.6:  # More than 60% are generic
+            flat_indicators += 1
+        total_checks += 1
+        
+        is_flat = flat_indicators >= total_checks * 0.5  # More than half indicators triggered
+        
+        return {
+            "is_flat": is_flat,
+            "score": flat_indicators / total_checks,
+            "indicators": {
+                "sequential_naming": sequential_names,
+                "validation_siblings": validation_siblings,
+                "has_grandchildren": has_grandchildren, 
+                "generic_actions": generic_actions
+            },
+            "children_count": len(children)
+        }
+    
+    return {"is_flat": False, "reason": "No parent provided"}
+
+
+def get_hierarchical_suggestions(detection_result: Dict[str, Any]) -> str:
+    """Generate suggestions for improving flat task structures."""
+    if not detection_result.get("is_flat", False):
+        return ""
+    
+    suggestions = ["🔄 **Consider improving this task structure:**\n"]
+    
+    indicators = detection_result.get("indicators", {})
+    children_count = detection_result.get("children_count", 0)
+    
+    if indicators.get("validation_siblings", 0) < children_count * 0.3:
+        suggestions.append("• Add validation siblings (✅) for each action task")
+    
+    if indicators.get("has_grandchildren", 0) < children_count * 0.3:
+        suggestions.append("• Break down tasks into deeper hierarchies (3+ levels)")
+    
+    if indicators.get("sequential_naming", 0) > 0:
+        suggestions.append("• Use domain-specific names instead of 'Step 1', 'Step 2'")
+    
+    if indicators.get("generic_actions", 0) > children_count * 0.6:
+        suggestions.append("• Replace generic actions with specific implementation details")
+    
+    suggestions.append("\n💡 **Example improvement:**")
+    suggestions.append("Instead of: Step 1 → Step 2 → Step 3")
+    suggestions.append("Try: Research & Design → Implementation → Validation")
+    suggestions.append("  ├─ Analyze requirements → ✅ Validate approach")  
+    suggestions.append("  ├─ Core logic → ✅ Unit tests")
+    suggestions.append("  └─ Integration → ✅ End-to-end tests")
+    
+    return "\n".join(suggestions)
+
+
 def get_hierarchical_planning_guidance() -> str:
     """Provide guidance on hierarchical task planning patterns."""
     return """💡 **Hierarchical Planning Tips**
@@ -447,9 +543,28 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[TextCon
             if set_as_current:
                 injector.set_current_task_id(task.id)
             
-            response = f"✅ **Task Created Successfully**\n\n{format_task_for_display(task)}"
+            response = f"✅ **Task Created Successfully** 🔧 SERVER_VERSION_2025-08-04-15:17\n\n{format_task_for_display(task)}"
             if set_as_current:
                 response += "\n\n🎯 Set as current task"
+            
+            # DEBUG: Always show parent_id status
+            response += f"\n\n🔧 DEBUG: parent_id = {parent_id}, type = {type(parent_id)}"
+            
+            # Check for flat patterns and provide suggestions
+            if parent_id:
+                response += f"\n\n🔧 DEBUG: Pattern detection running for parent {parent_id}"
+                try:
+                    detection_result = detect_flat_pattern(graph, parent_id)
+                    response += f"\n\n🔧 DEBUG: Detection result: {detection_result}"
+                    suggestions = get_hierarchical_suggestions(detection_result)
+                    if suggestions:
+                        response += "\n\n" + suggestions
+                    else:
+                        response += "\n\n🔧 DEBUG: No suggestions generated"
+                except Exception as e:
+                    response += f"\n\n🔧 DEBUG: Error in pattern detection: {e}"
+            else:
+                response += f"\n\n🔧 DEBUG: parent_id is None/False, skipping pattern detection"
             
             # Add hierarchical planning guidance for root tasks
             if not parent_id:  # Only show guidance for root tasks
