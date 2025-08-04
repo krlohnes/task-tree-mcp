@@ -39,7 +39,7 @@ Add to your Claude Desktop `claude_desktop_config.json`:
   "mcpServers": {
     "task-tree": {
       "command": "python",
-      "args": ["/path/to/ai-on-the-prize/mcp_server/server.py"]
+      "args": ["/path/to/task-tree-mcp/mcp_server/server.py"]
     }
   }
 }

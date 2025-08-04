@@ -8,7 +8,7 @@ The task tree system has been successfully converted to an MCP server with inter
 
 ### 1. Install Dependencies
 ```bash
-cd /Users/keith/projects/krlohnes/ai-on-the-prize
+cd /Users/keith/projects/krlohnes/task-tree-mcp
 source venv/bin/activate
 pip install mcp
 ```
@@ -22,10 +22,10 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
     "task-tree": {
       "command": "python",
       "args": [
-        "/Users/keith/projects/krlohnes/ai-on-the-prize/mcp_server/server.py"
+        "/Users/keith/projects/krlohnes/task-tree-mcp/mcp_server/server.py"
       ],
       "env": {
-        "PYTHONPATH": "/Users/keith/projects/krlohnes/ai-on-the-prize/mcp_server"
+        "PYTHONPATH": "/Users/keith/projects/krlohnes/task-tree-mcp/mcp_server"
       }
     }
   }
