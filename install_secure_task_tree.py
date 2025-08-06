@@ -40,9 +40,13 @@ class SecureTaskTreeInstaller:
             print("❌ Python 3.8+ required")
             sys.exit(1)
         
-        # Check Claude Desktop exists
-        if not self.claude_config_dir.exists():
-            print("❌ Claude Desktop not found. Please install Claude Desktop first.")
+        # Check if at least one Claude application exists
+        claude_desktop_exists = self.claude_config_dir.exists()
+        claude_code_exists = (Path.home() / ".claude").exists() or shutil.which("claude") is not None
+        
+        if not claude_desktop_exists and not claude_code_exists:
+            print("❌ Neither Claude Desktop nor Claude Code found.")
+            print("   Please install Claude Desktop or Claude Code first.")
             sys.exit(1)
         
         print("✅ Requirements satisfied")
@@ -107,44 +111,57 @@ class SecureTaskTreeInstaller:
         print(f"✅ Claude Code settings updated: {claude_settings_file}")
         print("📋 PostToolUse hook configured for all tools")
     
-    def configure_claude_desktop(self):
-        """Configure Claude Desktop with MCP server and hooks."""
-        print("⚙️ Configuring Claude Desktop...")
+    def configure_claude_applications(self):
+        """Configure Claude Desktop and/or Claude Code with MCP server."""
+        claude_desktop_exists = self.claude_config_dir.exists()
+        claude_code_exists = (Path.home() / ".claude").exists() or shutil.which("claude") is not None
         
-        # Load existing config or create new
-        if self.claude_config_file.exists():
-            with open(self.claude_config_file, 'r') as f:
-                config = json.load(f)
-        else:
-            config = {}
-        
-        # Ensure mcpServers section exists
-        if "mcpServers" not in config:
-            config["mcpServers"] = {}
-        
-        # Add task-tree MCP server
-        server_path = self.project_root / "mcp_server" / "server.py"
-        config["mcpServers"]["task-tree"] = {
-            "command": "python",
-            "args": [str(server_path)],
-            "env": {
-                "PYTHONPATH": str(self.project_root / "mcp_server")
+        # Configure Claude Desktop if present
+        if claude_desktop_exists:
+            print("⚙️ Configuring Claude Desktop...")
+            
+            # Load existing config or create new
+            if self.claude_config_file.exists():
+                with open(self.claude_config_file, 'r') as f:
+                    config = json.load(f)
+            else:
+                config = {}
+            
+            # Ensure mcpServers section exists
+            if "mcpServers" not in config:
+                config["mcpServers"] = {}
+            
+            # Add task-tree MCP server
+            server_path = self.project_root / "mcp_server" / "server.py"
+            config["mcpServers"]["task-tree"] = {
+                "command": "python",
+                "args": [str(server_path)],
+                "env": {
+                    "PYTHONPATH": str(self.project_root / "mcp_server")
+                }
             }
-        }
+            
+            # Write updated config
+            self.claude_config_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.claude_config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+            
+            print(f"✅ Claude Desktop configured: {self.claude_config_file}")
         
-        # Enable hooks (if Claude Desktop supports it)
-        if "hooks" not in config:
-            config["hooks"] = {}
-        
-        config["hooks"]["enabled"] = True
-        config["hooks"]["directory"] = str(self.hooks_dir)
-        
-        # Write updated config
-        self.claude_config_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.claude_config_file, 'w') as f:
-            json.dump(config, f, indent=2)
-        
-        print(f"✅ Claude Desktop configured: {self.claude_config_file}")
+        # Configure Claude Code if present
+        if claude_code_exists:
+            print("⚙️ Configuring Claude Code...")
+            try:
+                server_path = self.project_root / "mcp_server" / "server.py"
+                subprocess.run([
+                    "claude", "mcp", "add", "task-tree", 
+                    "python", str(server_path), "-s", "user"
+                ], check=True, capture_output=True)
+                print("✅ Claude Code MCP server added")
+            except subprocess.CalledProcessError:
+                print("⚠️ Could not auto-configure Claude Code (may need manual setup)")
+            except FileNotFoundError:
+                print("⚠️ Claude Code CLI not found (MCP setup may be manual)")
     
     def create_audit_directory(self):
         """Create secure audit directory structure."""
@@ -205,7 +222,7 @@ Files:
         print()
         print("✅ MCP Server: Installed with enhanced verification")
         print("✅ Security Hooks: Enabled for tool audit trail")
-        print("✅ Claude Desktop: Configured with security features")
+        print("✅ Claude Applications: Configured with security features")
         print("✅ Audit System: Ready for tamper-proof logging")
         print()
         print("🔒 SECURITY FEATURES ENABLED:")
@@ -215,7 +232,7 @@ Files:
         print("  • Vague evidence detection and blocking")
         print()
         print("⚠️ IMPORTANT:")
-        print("  • Restart Claude Desktop to activate hooks")
+        print("  • Restart Claude Desktop/Claude Code to activate hooks")
         print("  • Test with a simple task to verify functionality")
         print("  • Audit logs will appear in ~/.claude/task_tree_audit/")
         print()
@@ -227,7 +244,7 @@ Files:
             self.check_requirements()
             self.install_dependencies()
             self.setup_security_hooks()
-            self.configure_claude_desktop()
+            self.configure_claude_applications()
             self.create_audit_directory()
             self.run_security_test()
             self.print_completion_message()
