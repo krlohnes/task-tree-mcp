@@ -26,9 +26,18 @@ from mcp.types import (
 
 from task_tree import TaskGraph, TaskNode, TaskStatus, TaskPriority, ContextInjector
 
+try:
+    from .hook_validator import validate_agent_tool_claim
+    HOOKS_AVAILABLE = True
+except ImportError:
+    HOOKS_AVAILABLE = False
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("task-tree-mcp")
+
+if not HOOKS_AVAILABLE:
+    logger.warning("🚨 Hook validator not available - security features disabled!")
 
 # Global task graph instance
 task_graph: Optional[TaskGraph] = None
@@ -1242,14 +1251,45 @@ Tasks cannot be marked as completed using `update_task_status`.
             if not task:
                 return [TextContent(type="text", text=f"❌ Task {task_id_str} not found")]
             
-            # Submit the tool result for verification
+            # ENHANCED SECURITY: Validate against hook audit trail
             session_id = get_session_id()
             
             if session_id not in verification_sessions or task_id_str not in verification_sessions[session_id]:
                 return [TextContent(type="text", text=f"❌ No verification claim recorded for this task. Use `record_verification_claim` first.")]
             
-            # Validate this tool call against the claimed evidence
+            # Hook-based validation (if available)
+            hook_validation = None
+            if HOOKS_AVAILABLE:
+                try:
+                    hook_validation = validate_agent_tool_claim(tool_name, tool_args, tool_result)
+                except Exception as e:
+                    logger.warning(f"Hook validation failed: {e}")
+                    hook_validation = {
+                        "valid": False, 
+                        "reason": f"Hook validation error: {e}"
+                    }
+            
+            # Legacy validation (kept as fallback)
             is_valid = validate_tool_call_evidence(session_id, task_id_str, tool_name, tool_args, tool_result)
+            
+            # If hooks available, hook validation takes precedence
+            if hook_validation is not None:
+                if not hook_validation["valid"]:
+                    response = f"🚨 **SECURITY VIOLATION: Tool Result Falsification Detected**\n\n"
+                    response += f"🎯 **Task:** {task.title}\n"
+                    response += f"🔧 **Tool:** {tool_name}\n"
+                    response += f"📋 **Your Claimed Result:** {tool_result[:200]}{'...' if len(tool_result) > 200 else ''}\n"
+                    response += f"🔍 **Hook Audit Trail:** {hook_validation['reason']}\n\n"
+                    if 'actual_result' in hook_validation:
+                        response += f"**What Actually Happened:**\n{hook_validation['actual_result'][:200]}{'...' if len(str(hook_validation['actual_result'])) > 200 else ''}\n\n"
+                    response += f"**🚫 This tool result submission has been REJECTED.**\n"
+                    response += f"**The system has detected that your claimed tool result does not match the actual tool execution recorded in the secure audit trail.**\n\n"
+                    response += f"**To proceed:**\n"
+                    response += f"1. Submit the ACTUAL tool result as recorded by the system\n"
+                    response += f"2. Do not attempt to modify or falsify tool outputs\n"
+                    response += f"3. The audit trail is cryptographically secured and cannot be tampered with"
+                    
+                    return [TextContent(type="text", text=response)]
             
             session_data = verification_sessions[session_id][task_id_str]
             

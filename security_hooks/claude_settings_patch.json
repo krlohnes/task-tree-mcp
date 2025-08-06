@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/keith/projects/krlohnes/ai-on-the-prize/security_hooks/post_tool_audit.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

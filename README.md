@@ -50,24 +50,34 @@ A hierarchical task management system for Claude Code that maintains context and
 # 1. Clone or download this repository
 git clone https://github.com/krlohnes/task-tree-mcp.git
 cd task-tree-mcp
-
-# 2. Install Python dependencies
-pip install -r requirements.txt
 ```
 
-**Add to Claude Code:**
+**Secure Installation (Recommended):**
 ```bash
-# Option 1: Using absolute paths (recommended)
-claude mcp add task-tree "python" "/absolute/path/to/task-tree-mcp/mcp_server/server.py" -s user
+# Run the secure installer - it handles everything automatically
+python install_secure_task_tree.py
+```
 
-# Option 2: Using virtual environment
-claude mcp add task-tree "/path/to/venv/bin/python" "/absolute/path/to/task-tree-mcp/mcp_server/server.py" -s user
+The secure installer will:
+- Install Python dependencies via `setup.py`
+- Set up security hooks for tool audit trails
+- Configure Claude Code with MCP server
+- Create secure audit directory structure
+- Enable tamper-proof task verification
+
+**Manual Installation (Alternative):**
+```bash
+# Install dependencies manually
+pip install -r requirements.txt
+
+# Add to Claude Code manually
+claude mcp add task-tree "python" "/absolute/path/to/task-tree-mcp/mcp_server/server.py" -s user
 
 # Verify installation
 claude mcp list
 ```
 
-**Restart Claude Code** after installation to activate the MCP server.
+**Important:** Restart Claude Code after installation to activate all features.
 
 ### **Basic Usage**
 ```bash

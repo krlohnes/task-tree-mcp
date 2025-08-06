@@ -33,8 +33,13 @@ setup(
     entry_points={
         "console_scripts": [
             "task-tree=task_tree.cli:app",
+            "install-secure-task-tree=install_secure_task_tree:SecureTaskTreeInstaller.install",
         ],
     },
+    package_data={
+        "": ["security_hooks/*.py", "mcp_server/*.py"],
+    },
+    include_package_data=True,
     extras_require={
         "dev": [
             "pytest>=7.0",
