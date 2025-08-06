@@ -80,13 +80,50 @@ def parse_required_tools(verification_steps: str) -> List[Dict[str, Any]]:
     return required_tools
 
 
+def validate_evidence_specificity(evidence: str) -> Dict[str, Any]:
+    """Check if evidence contains specific, falsifiable claims."""
+    evidence_lower = evidence.lower()
+    
+    # Detect vague/generic patterns that allow bypass
+    vague_patterns = [
+        "complete", "done", "finished", "ready", "works", "working",
+        "good", "fine", "correct", "perfect", "successfully", "proper"
+    ]
+    
+    # Count vague vs specific indicators
+    vague_count = sum(1 for pattern in vague_patterns if pattern in evidence_lower)
+    
+    # Look for specific, falsifiable claims
+    specific_indicators = [
+        "returns", "outputs", "shows", "displays", "produces", "generates",
+        "contains", "includes", "prints", "executes", "creates", "saves",
+        "equals", "matches", "fails", "succeeds", "passes", "errors"
+    ]
+    
+    specific_count = sum(1 for indicator in specific_indicators if indicator in evidence_lower)
+    
+    # Check for actual data/values mentioned
+    has_concrete_data = any(char.isdigit() for char in evidence) or \
+                       '"' in evidence or "'" in evidence or \
+                       any(word in evidence_lower for word in ["true", "false", "null", "none"])
+    
+    return {
+        "is_specific": specific_count >= 2 and vague_count <= specific_count // 2 and has_concrete_data,
+        "vague_count": vague_count,
+        "specific_count": specific_count,
+        "has_concrete_data": has_concrete_data,
+        "reason": f"Evidence has {vague_count} vague terms, {specific_count} specific terms, concrete data: {has_concrete_data}"
+    }
+
+
 def validate_tool_call_evidence(session_id: str, task_id: str, tool_name: str, tool_args: Dict[str, Any], tool_result: str) -> bool:
     """Validate that a tool call result supports the claimed evidence."""
     if session_id not in verification_sessions or task_id not in verification_sessions[session_id]:
         return False
     
     session_data = verification_sessions[session_id][task_id]
-    evidence = session_data["evidence"].lower()
+    evidence = session_data["evidence"]
+    evidence_lower = evidence.lower()
     
     # Record this tool call
     session_data["tool_calls_made"].append({
@@ -95,21 +132,37 @@ def validate_tool_call_evidence(session_id: str, task_id: str, tool_name: str, t
         "result": tool_result
     })
     
-    # Validate specific claims against tool results
+    # Enhanced validation - look for specific contradictions
+    tool_result_lower = tool_result.lower()
+    
     if tool_name == "Read":
-        # Check if evidence claims about file contents match actual contents
-        if "hello, world" in evidence and "hello, world" not in tool_result.lower():
-            return False
-        if "print(\"hello, world!\")" in evidence and "print(\"hello, world!\")" not in tool_result.lower():
-            return False
+        # Extract specific claims about file contents
+        if "contains" in evidence_lower or "includes" in evidence_lower:
+            # Look for quoted content claims
+            import re
+            quoted_content = re.findall(r'"([^"]*)"', evidence) + re.findall(r"'([^']*)'", evidence)
+            for content in quoted_content:
+                if content.lower() not in tool_result_lower:
+                    return False
+        
+        # Check for specific function/code claims
+        if "function" in evidence_lower or "def " in evidence_lower or "print(" in evidence_lower:
+            # More specific code validation needed
+            if "hello, world" in evidence_lower and "hello, world" not in tool_result_lower:
+                return False
     
     if tool_name == "Bash":
-        # Check if claimed output matches actual output
-        if "hello, world" in evidence and "hello, world" not in tool_result.lower():
-            return False
+        # Check execution output claims
+        if "output" in evidence_lower or "returns" in evidence_lower or "prints" in evidence_lower:
+            # Look for specific output claims
+            import re
+            quoted_output = re.findall(r'"([^"]*)"', evidence) + re.findall(r"'([^']*)'", evidence)
+            for output in quoted_output:
+                if output.lower() not in tool_result_lower:
+                    return False
     
     if tool_name == "LS":
-        # Check if claimed file existence matches actual file listing
+        # Check file existence claims
         file_path_in_evidence = extract_file_path_from_evidence(evidence)
         if file_path_in_evidence and file_path_in_evidence not in tool_result:
             return False
@@ -501,8 +554,8 @@ async def handle_list_tools() -> List[Tool]:
                     "task_id": {"type": "string", "description": "Task ID to update"},
                     "status": {
                         "type": "string",
-                        "enum": ["pending", "in_progress", "completed", "blocked", "cancelled"],
-                        "description": "New task status"
+                        "enum": ["pending", "in_progress", "blocked", "cancelled"],
+                        "description": "New task status (completed requires verification)"
                     },
                     "reason": {"type": "string", "description": "Optional reason for the status change"}
                 },
@@ -784,30 +837,22 @@ This task cannot be created without completion criteria.
             
             old_status = task.status if isinstance(task.status, str) else task.status.value
             
-            # Validate completion criteria before allowing completion
+            # Block direct completion attempts
             if new_status == "completed":
-                # Check if task has completion criteria or #trivial tag
-                if not task.completion_criteria and "trivial" not in task.tags:
-                    return [TextContent(type="text", text=f"""❌ **Cannot Complete Task Without Criteria**
+                return [TextContent(type="text", text=f"""❌ **Cannot Complete Task Directly**
 
 📝 **{task.title}**
 
-This task cannot be marked as completed because it has no completion criteria defined.
+Tasks cannot be marked as completed using `update_task_status`. 
 
-**To fix this, either:**
-1. **Add completion criteria**: What specific conditions must be met for this task to be truly done?
-2. **Tag as trivial**: Add `#trivial` tag if this is a simple task that doesn't need criteria
+**To complete a task:**
+1. Use `suggest_task_completion` to provide evidence
+2. Follow the enhanced verification process
+3. Use `confirm_evidence` after verification passes
+4. The task will be automatically marked as completed
 
-**Why this matters:** Completion criteria prevent premature "mission accomplished" moments and ensure work is actually finished.
-
-**Examples of good criteria:**
-• Function returns expected output for test cases
-• All unit tests pass  
-• Integration verified with manual testing
-• Documentation updated with changes
-• Error handling covers edge cases""")]
-                
-                task.mark_completed()
+**This prevents bypass of the verification system.**""")]
+            
             elif new_status == "in_progress":
                 task.mark_in_progress()
             elif new_status == "blocked":
@@ -970,32 +1015,82 @@ This task cannot be marked as completed because it has no completion criteria de
                 
                 return [TextContent(type="text", text=response)]
             
-            # Enhanced verification - always require tool-based verification
-            # All evidence must go through the new verification system
+            # FIRST: Validate evidence specificity for ALL non-trivial tasks
+            if task.completion_criteria:
+                # Check evidence specificity before allowing any verification
+                specificity_check = validate_evidence_specificity(evidence)
+                if not specificity_check["is_specific"]:
+                    response = f"❌ **Evidence Too Vague for Verification**\n\n"
+                    response += f"📝 **Task:** {task.title}\n"
+                    response += f"🎯 **Success Criteria:** {task.completion_criteria}\n"
+                    response += f"📋 **Your Evidence:** {evidence}\n"
+                    response += f"🔧 **Analysis:** {specificity_check['reason']}\n\n"
+                    response += f"**Why this was rejected:**\n"
+                    response += f"• Vague terms detected: {specificity_check['vague_count']}\n"
+                    response += f"• Specific claims found: {specificity_check['specific_count']}\n" 
+                    response += f"• Contains concrete data: {specificity_check['has_concrete_data']}\n\n"
+                    response += f"**Evidence must be specific and falsifiable:**\n"
+                    response += f"❌ Avoid: 'Task is complete', 'Works perfectly', 'Looks good'\n"
+                    response += f"✅ Required: 'Function returns \"Hello, World!\"', 'File contains print(\"Hello\")'\n\n"
+                    response += f"**Rewrite your evidence with:**\n"
+                    response += f"• Specific claims about outputs, contents, or behaviors\n"
+                    response += f"• Quoted strings or concrete values\n"
+                    response += f"• Falsifiable statements that can be contradicted by tool results"
+                    
+                    return [TextContent(type="text", text=response)]
             
-            response = f"🔍 **Evidence Verification Required**\n\n"
-            response += f"📝 **Task:** {task.title}\n"
-            response += f"🎯 **Success Criteria:** {task.completion_criteria if task.completion_criteria else 'Tagged as #trivial'}\n"
-            response += f"💭 **Your Reason:** {reason}\n"
-            response += f"📋 **Your Evidence:** {evidence}\n\n"
-            response += f"**⚠️ Tool-Based Evidence Verification Required**\n"
-            response += f"Before this task can be completed, you must provide evidence using actual tool calls.\n\n"
-            response += f"**Required verification approach:**\n"
-            response += f"1. **Record your verification plan**: Use `record_verification_claim` to declare what you will verify\n"
-            response += f"2. **Make actual tool calls**: Call LS, Read, Bash, or other tools to gather evidence\n"
-            response += f"3. **Submit each tool result**: Use `submit_verification_evidence` for each tool call\n"
-            response += f"4. **Confirm completion**: Use `confirm_evidence` after all required tools have been called\n\n"
-            response += f"**Step 1: Record your verification plan**\n"
-            response += f"Use `record_verification_claim` with:\n"
-            response += f"- task_id: `{task_id_str}`\n"
-            response += f"- evidence: Your evidence text\n"
-            response += f"- verification_steps: Specific tools you will use (e.g., 'LS tool to check file exists, Read tool to verify contents, Bash tool to test execution')\n\n"
-            response += f"**Step 2: Make tool calls and submit results**\n"
-            response += f"For each tool call you make:\n"
-            response += f"1. Call the tool (LS, Read, Bash, etc.)\n"
-            response += f"2. Immediately use `submit_verification_evidence` with the actual tool results\n\n"
-            response += f"**Step 3: Complete verification**\n"
-            response += f"Use `confirm_evidence` only after all required tool results have been submitted"
+            # Enhanced verification logic with proper trivial handling
+            if task.completion_criteria:
+                # Tasks with completion criteria require enhanced verification
+                response = f"🔍 **Evidence Verification Required**\n\n"
+                response += f"📝 **Task:** {task.title}\n"
+                response += f"🎯 **Success Criteria:** {task.completion_criteria}\n"
+                response += f"💭 **Your Reason:** {reason}\n"
+                response += f"📋 **Your Evidence:** {evidence}\n\n"
+                response += f"**⚠️ Tool-Based Evidence Verification Required**\n"
+                response += f"Before this task can be completed, you must provide evidence using actual tool calls.\n\n"
+                response += f"**Required verification approach:**\n"
+                response += f"1. **Record your verification plan**: Use `record_verification_claim` to declare what you will verify\n"
+                response += f"2. **Make actual tool calls**: Call LS, Read, Bash, or other tools to gather evidence\n"
+                response += f"3. **Submit each tool result**: Use `submit_verification_evidence` for each tool call\n"
+                response += f"4. **Confirm completion**: Use `confirm_evidence` after all required tools have been called\n\n"
+                response += f"**Step 1: Record your verification plan**\n"
+                response += f"Use `record_verification_claim` with:\n"
+                response += f"- task_id: `{task_id_str}`\n"
+                response += f"- evidence: Your evidence text\n"
+                response += f"- verification_steps: Specific tools you will use (e.g., 'LS tool to check file exists, Read tool to verify contents, Bash tool to test execution')\n\n"
+                response += f"**Step 2: Make tool calls and submit results**\n"
+                response += f"For each tool call you make:\n"
+                response += f"1. Call the tool (LS, Read, Bash, etc.)\n"
+                response += f"2. Immediately use `submit_verification_evidence` with the actual tool results\n\n"
+                response += f"**Step 3: Complete verification**\n"
+                response += f"Use `confirm_evidence` only after all required tool results have been submitted"
+            
+            elif "trivial" in task.tags:
+                # Trivial tasks can be completed with simple evidence confirmation
+                task.mark_completed()
+                graph.update_task(task)
+                
+                response = f"✅ **Trivial Task Completed**\n\n"
+                response += f"📝 **Task:** {task.title}\n"
+                response += f"🏷️ **Tagged as:** #trivial (no verification required)\n"
+                response += f"💭 **Reason:** {reason}\n"
+                response += f"📋 **Evidence:** {evidence}\n\n"
+                response += f"**🎉 Task automatically completed!**\n"
+                response += f"Trivial tasks bypass the enhanced verification system."
+            
+            else:
+                # Tasks without criteria and without trivial tag are rejected
+                response = f"❌ **Cannot Complete Task Without Criteria or Trivial Tag**\n\n"
+                response += f"📝 **Task:** {task.title}\n"
+                response += f"💭 **Your Reason:** {reason}\n"
+                response += f"📋 **Your Evidence:** {evidence}\n\n"
+                response += f"**Missing Requirements**\n"
+                response += f"This task cannot be completed because it has neither completion criteria nor a #trivial tag.\n\n"
+                response += f"**To fix this, either:**\n"
+                response += f"1. **Add completion criteria**: Define what conditions must be met for completion\n"
+                response += f"2. **Tag as trivial**: Add `#trivial` tag if this is a simple administrative task\n\n"
+                response += f"**Why this matters:** Tasks need either specific success criteria or explicit trivial classification."
             
             return [TextContent(type="text", text=response)]
         
@@ -1090,6 +1185,27 @@ This task cannot be marked as completed because it has no completion criteria de
             task = graph.get_task(task_id)
             if not task:
                 return [TextContent(type="text", text=f"❌ Task {task_id_str} not found")]
+            
+            # Validate evidence specificity before recording
+            specificity_check = validate_evidence_specificity(evidence)
+            if not specificity_check["is_specific"]:
+                response = f"❌ **Evidence Too Vague for Verification**\n\n"
+                response += f"🎯 **Task:** {task.title}\n"
+                response += f"📋 **Your Evidence:** {evidence}\n"
+                response += f"🔧 **Analysis:** {specificity_check['reason']}\n\n"
+                response += f"**Why this was rejected:**\n"
+                response += f"• Vague terms detected: {specificity_check['vague_count']}\n"
+                response += f"• Specific claims found: {specificity_check['specific_count']}\n" 
+                response += f"• Contains concrete data: {specificity_check['has_concrete_data']}\n\n"
+                response += f"**Evidence must be specific and falsifiable:**\n"
+                response += f"❌ Avoid: 'Task is complete', 'Works perfectly', 'Looks good'\n"
+                response += f"✅ Required: 'Function returns \"Hello, World!\"', 'File contains print(\"Hello\")'\n\n"
+                response += f"**Rewrite your evidence with:**\n"
+                response += f"• Specific claims about outputs, contents, or behaviors\n"
+                response += f"• Quoted strings or concrete values\n"
+                response += f"• Falsifiable statements that can be contradicted by tool results"
+                
+                return [TextContent(type="text", text=response)]
             
             # Record the verification claim
             session_id = get_session_id()
@@ -1225,9 +1341,13 @@ This task cannot be marked as completed because it has no completion criteria de
             response += f"🔍 **Verification Steps:** {verification_steps}\n"
             response += f"🗺️ **Criteria Mapping:** {criteria_mapping}\n\n"
             response += f"**✅ Evidence validated against actual tool call results.**\n\n"
-            response += f"**To finalize completion:**\n"
-            response += f"• `update_task_status` with task_id `{task_id_str}` and status `completed` to approve\n"
-            response += f"• Or explain what still needs to be done"
+            
+            # Automatically complete the task after successful verification
+            task.mark_completed()
+            graph.update_task(task)
+            
+            response += f"**🎉 Task Automatically Completed!**\n"
+            response += f"The task has been marked as completed after successful verification."
             
             return [TextContent(type="text", text=response)]
         
