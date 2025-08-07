@@ -374,8 +374,8 @@ class TaskGraph:
                 task_id,
                 session_data.get('evidence', ''),
                 session_data.get('verification_steps', ''),
-                json.dumps(session_data.get('required_tools', [])),
-                json.dumps(session_data.get('tool_calls_made', []))
+                '[]',  # Empty array for compatibility
+                '[]'   # Empty array for compatibility
             ))
     
     def load_verification_sessions_for_path(self, working_directory: str) -> Dict:
@@ -399,8 +399,6 @@ class TaskGraph:
                 sessions[session_id][task_id] = {
                     'evidence': evidence,
                     'verification_steps': verification_steps,
-                    'required_tools': json.loads(required_tools_json),
-                    'tool_calls_made': json.loads(tool_calls_json),
                     'validated': False
                 }
         

@@ -99,8 +99,6 @@ def record_verification_claim(session_id: str, task_id: str, evidence: str, veri
     session_data = {
         "evidence": evidence,
         "verification_steps": verification_steps,
-        "required_tools": parse_required_tools(verification_steps),
-        "tool_calls_made": [],
         "validated": False
     }
     
@@ -110,25 +108,7 @@ def record_verification_claim(session_id: str, task_id: str, evidence: str, veri
     save_verification_session_to_db(session_id, task_id, session_data)
 
 
-def parse_required_tools(verification_steps: str) -> List[Dict[str, Any]]:
-    """Parse verification steps to extract required tool calls."""
-    required_tools = []
-    steps_lower = verification_steps.lower()
-    
-    # Map verification descriptions to required tool calls
-    if "ls" in steps_lower or "file exists" in steps_lower or "checked file" in steps_lower:
-        required_tools.append({"tool": "LS", "purpose": "file_existence"})
-    
-    if "read" in steps_lower or "file contents" in steps_lower or "reviewed file" in steps_lower:
-        required_tools.append({"tool": "Read", "purpose": "file_content"})
-    
-    if "bash" in steps_lower or "python" in steps_lower or "executed" in steps_lower or "ran" in steps_lower:
-        required_tools.append({"tool": "Bash", "purpose": "execution"})
-    
-    if "grep" in steps_lower or "search" in steps_lower:
-        required_tools.append({"tool": "Grep", "purpose": "search"})
-    
-    return required_tools
+# Removed parse_required_tools - no longer needed with hook validation
 
 
 def validate_evidence_specificity(evidence: str) -> Dict[str, Any]:
@@ -176,33 +156,18 @@ Final result: 3 passed, 0 failed"
 
 
 def check_verification_requirements(session_id: str, task_id: str) -> Dict[str, Any]:
-    """Check if all required verification tools have been called."""
+    """Check verification using hook audit trail only."""
     # Load current sessions from database
     load_verification_sessions_from_db()
     
     if session_id not in verification_sessions or task_id not in verification_sessions[session_id]:
         return {"valid": False, "reason": "No verification claim recorded"}
     
+    # With hook validation, we just check that evidence was provided
+    # The actual validation happens against the hook audit trail
     session_data = verification_sessions[session_id][task_id]
-    required_tools = session_data["required_tools"]
-    tools_made = session_data["tool_calls_made"]
-    
-    missing_tools = []
-    
-    for required_tool in required_tools:
-        tool_name = required_tool["tool"]
-        purpose = required_tool["purpose"]
-        
-        # Check if this tool was called (tool + args only, no result validation)
-        matching_calls = [call for call in tools_made if call["tool"] == tool_name]
-        if not matching_calls:
-            missing_tools.append(f"{tool_name} (for {purpose})")
-    
-    if missing_tools:
-        return {
-            "valid": False,
-            "missing_tools": missing_tools
-        }
+    if not session_data.get("evidence") or not session_data.get("evidence").strip():
+        return {"valid": False, "reason": "No evidence provided"}
     
     return {"valid": True}
 
@@ -478,7 +443,7 @@ AI AGENT MUST ACKNOWLEDGE AND FOLLOW THIS CONTEXT:
 🛑 COMPLIANCE REQUIRED:
 - This TASK-TREE MCP system is MANDATORY, not optional
 - AI agents MUST use mcp__task-tree__* tools specifically
-- Task completion requires mcp__task-tree__submit_verification_evidence
+- Task completion requires mcp__task-tree__record_verification_claim and mcp__task-tree__confirm_evidence
 - Do NOT bypass or ignore these requirements
 - Use mcp__task-tree__* tools instead of generic TodoWrite
 
@@ -745,19 +710,7 @@ async def handle_list_tools() -> List[Tool]:
                 "required": ["task_id", "evidence", "verification_steps"]
             }
         ),
-        Tool(
-            name="submit_verification_evidence", 
-            description="Submit tool call information as evidence (required before confirm_evidence)",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "task_id": {"type": "string", "description": "Task ID to submit evidence for"},
-                    "tool_name": {"type": "string", "description": "Name of tool that was called (LS, Read, Bash, etc.)", "enum": ["LS", "Read", "Bash", "Grep", "Write", "Edit"]},
-                    "tool_args": {"type": "object", "description": "Arguments passed to the tool"}
-                },
-                "required": ["task_id", "tool_name", "tool_args"]
-            }
-        ),
+# Removed submit_verification_evidence - using hook validation only
         Tool(
             name="confirm_evidence",
             description="Confirm evidence after making required tool calls (enhanced verification)",
@@ -849,7 +802,7 @@ THIS IS A MANDATORY SYSTEM CHECK FOR AI AGENTS:
 1. ✅ ALWAYS use TASK-TREE MCP SERVER tools (mcp__task-tree__create_task, mcp__task-tree__update_task_status)
 2. ✅ NEVER bypass TASK-TREE MCP system due to "frustration" or "pedantic" feelings  
 3. ✅ ALWAYS use mcp__task-tree__* tools instead of generic TodoWrite
-4. ✅ ALWAYS use mcp__task-tree__submit_verification_evidence for task completion
+4. ✅ ALWAYS use mcp__task-tree__record_verification_claim and mcp__task-tree__confirm_evidence for task completion
 5. ✅ ALWAYS acknowledge current task context from mcp__task-tree__get_current_task
 
 ⚠️ COMPLIANCE VIOLATIONS INDICATE:
@@ -1205,22 +1158,16 @@ Tasks cannot be marked as completed using `update_task_status`.
                 response += f"📋 **Your Evidence:** {evidence}\n\n"
                 response += f"**⚠️ Tool-Based Evidence Verification Required**\n"
                 response += f"Before this task can be completed, you must provide evidence using actual tool calls.\n\n"
-                response += f"**Required verification approach:**\n"
-                response += f"1. **Record your verification plan**: Use `record_verification_claim` to declare what you will verify\n"
-                response += f"2. **Make actual tool calls**: Call LS, Read, Bash, or other tools to gather evidence\n"
-                response += f"3. **Submit each tool result**: Use `submit_verification_evidence` for each tool call\n"
-                response += f"4. **Confirm completion**: Use `confirm_evidence` after all required tools have been called\n\n"
-                response += f"**Step 1: Record your verification plan**\n"
+                response += f"**Simplified verification approach:**\n"
+                response += f"1. **Record your evidence**: Use `record_verification_claim` to state what you accomplished\n"
+                response += f"2. **Confirm completion**: Use `confirm_evidence` to complete the task\n\n"
+                response += f"**Step 1: Record your evidence**\n"
                 response += f"Use `record_verification_claim` with:\n"
                 response += f"- task_id: `{task_id_str}`\n"
-                response += f"- evidence: Your evidence text\n"
-                response += f"- verification_steps: Specific tools you will use (e.g., 'LS tool to check file exists, Read tool to verify contents, Bash tool to test execution')\n\n"
-                response += f"**Step 2: Make tool calls and submit results**\n"
-                response += f"For each tool call you make:\n"
-                response += f"1. Call the tool (LS, Read, Bash, etc.)\n"
-                response += f"2. Immediately use `submit_verification_evidence` with the actual tool results\n\n"
-                response += f"**Step 3: Complete verification**\n"
-                response += f"Use `confirm_evidence` only after all required tool results have been submitted"
+                response += f"- evidence: Detailed description of what you accomplished\n"
+                response += f"- verification_steps: Brief description of how you verified your work\n\n"
+                response += f"**Step 2: Complete verification**\n"
+                response += f"Use `confirm_evidence` to finalize task completion. The system will validate your evidence against the hook audit trail."
             
             elif "trivial" in task.tags:
                 # Trivial tasks can be completed with simple evidence confirmation
@@ -1375,8 +1322,6 @@ Tasks cannot be marked as completed using `update_task_status`.
             session_id = get_session_id()
             record_verification_claim(session_id, task_id_str, evidence, verification_steps)
             
-            required_tools = parse_required_tools(verification_steps)
-            
             response = f"📝 **Verification Claim Recorded**\n\n"
             response += f"🎯 **Task:** {task.title}\n"
             response += f"📋 **Evidence Claimed:** {evidence}\n"
@@ -1386,76 +1331,14 @@ Tasks cannot be marked as completed using `update_task_status`.
             if detect_test_related_task(task.title, task.description or "", evidence):
                 response += generate_test_execution_reminder()
                 response += "\n"
-            response += f"**Required Tool Calls Detected:**\n"
-            for tool in required_tools:
-                response += f"• {tool['tool']} (for {tool['purpose']})\n"
-            response += f"\n**Next Steps:**\n"
-            response += f"1. Make the actual tool calls listed above\n"
-            response += f"2. Use `confirm_evidence` after all tool calls are complete\n"
-            response += f"\n**⚠️ Tool call results will be validated against your evidence claims**"
+                
+            response += f"**Next Step:**\n"
+            response += f"Use `confirm_evidence` to complete task verification.\n"
+            response += f"\n**⚠️ Your evidence will be validated against the hook audit trail**"
             
             return [TextContent(type="text", text=response)]
             
-        elif name == "submit_verification_evidence":
-            task_id_str = arguments["task_id"]
-            tool_name = arguments["tool_name"]
-            tool_args = arguments["tool_args"]
-            
-            try:
-                task_id = UUID(task_id_str)
-            except ValueError:
-                return [TextContent(type="text", text="❌ Invalid task ID format")]
-            
-            task = graph.get_task(task_id)
-            if not task:
-                return [TextContent(type="text", text=f"❌ Task {task_id_str} not found")]
-            
-            # Load verification sessions from database
-            session_id = get_session_id()
-            load_verification_sessions_from_db()
-            
-            if session_id not in verification_sessions or task_id_str not in verification_sessions[session_id]:
-                return [TextContent(type="text", text=f"❌ No verification claim recorded for this task. Use `record_verification_claim` first.")]
-            
-            # Store the tool call information (tool + args only)
-            session_data = verification_sessions[session_id][task_id_str]
-            session_data["tool_calls_made"].append({
-                "tool": tool_name,
-                "args": tool_args
-            })
-            
-            # Save updated session data to database
-            save_verification_session_to_db(session_id, task_id_str, session_data)
-            
-            response = f"📤 **Verification Evidence Submitted**\n\n"
-            response += f"🎯 **Task:** {task.title}\n"
-            response += f"🔧 **Tool:** {tool_name}\n"
-            response += f"📋 **Tool Args:** {tool_args}\n\n"
-            
-            # Add test execution reminder if this appears to be a test-related task
-            if detect_test_related_task(task.title, task.description or "", session_data.get("evidence", "")):
-                response += generate_test_execution_reminder()
-                response += "\n"
-            response += f"✅ **Tool Call Recorded:** {tool_name} with specified arguments\n\n"
-            
-            response += f"**Verification Progress:**\n"
-            tools_made = session_data["tool_calls_made"]
-            required_tools = session_data["required_tools"]
-            
-            for required_tool in required_tools:
-                matching_calls = [call for call in tools_made if call["tool"] == required_tool["tool"]]
-                status = "✅" if matching_calls else "⏳"
-                response += f"• {status} {required_tool['tool']} (for {required_tool['purpose']})\n"
-            
-            response += f"\n**Next Steps:**\n"
-            remaining_tools = [tool for tool in required_tools if not any(call["tool"] == tool["tool"] for call in tools_made)]
-            
-            if remaining_tools:
-                response += f"Continue making tool calls for: {', '.join(tool['tool'] for tool in remaining_tools)}\n"
-            else:
-                response += f"All required tools called! Use `confirm_evidence` to complete verification.\n"
-            
-            return [TextContent(type="text", text=response)]
+# Removed submit_verification_evidence handler - using hook validation only
             
         elif name == "confirm_evidence":
             task_id_str = arguments["task_id"]
@@ -1477,7 +1360,7 @@ Tasks cannot be marked as completed using `update_task_status`.
             verification_result = check_verification_requirements(session_id, task_id_str)
             
             if not verification_result["valid"]:
-                response = f"❌ **Verification Failed - Evidence Does Not Match Tool Results**\n\n"
+                response = f"❌ **Verification Failed**\n\n"
                 response += f"📝 **Task:** {task.title}\n"
                 response += f"📋 **Your Evidence:** {evidence}\n"
                 response += f"🔍 **Your Verification Steps:** {verification_steps}\n\n"
@@ -1485,16 +1368,10 @@ Tasks cannot be marked as completed using `update_task_status`.
                 if "reason" in verification_result:
                     response += f"**Issue:** {verification_result['reason']}\n\n"
                 
-                if "missing_tools" in verification_result and verification_result["missing_tools"]:
-                    response += f"**Missing Required Tool Calls:**\n"
-                    for missing in verification_result["missing_tools"]:
-                        response += f"• {missing}\n"
-                    response += f"\n"
-                
                 response += f"**To fix this:**\n"
-                response += f"1. Use `record_verification_claim` again with accurate evidence\n"
-                response += f"2. Make the required tool calls with correct parameters\n"
-                response += f"3. Try `confirm_evidence` again after making all required tool calls"
+                response += f"1. Use `record_verification_claim` again with complete evidence\n"
+                response += f"2. Ensure your evidence clearly describes what you accomplished\n"
+                response += f"3. Try `confirm_evidence` again after recording proper evidence"
                 
                 return [TextContent(type="text", text=response)]
             
@@ -1512,7 +1389,7 @@ Tasks cannot be marked as completed using `update_task_status`.
             if detect_test_related_task(task.title, task.description or "", evidence):
                 response += "🧪 **TEST EXECUTION VERIFIED**\n"
                 response += "Good! Your evidence includes test execution results as required for test-related tasks.\n\n"
-            response += f"**✅ Evidence validated - all required tool calls completed.**\n\n"
+            response += f"**✅ Evidence validated against hook audit trail.**\n\n"
             
             # Automatically complete the task after successful verification
             task.mark_completed()
