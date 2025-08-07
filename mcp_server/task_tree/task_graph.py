@@ -293,7 +293,8 @@ class TaskGraph:
         }
         
         for task in self.nodes.values():
-            stats[task.status.value] += 1
+            status_key = task.status if isinstance(task.status, str) else task.status.value
+            stats[status_key] += 1
             if task.is_root():
                 stats["root_tasks"] += 1
             if task.is_leaf():

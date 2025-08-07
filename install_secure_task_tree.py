@@ -92,6 +92,7 @@ class SecureTaskTreeInstaller:
         if "hooks" not in settings:
             settings["hooks"] = {}
         
+        # Configure PostToolUse hook for audit trail
         settings["hooks"]["PostToolUse"] = [
             {
                 "matcher": "*",  # Match all tools
@@ -99,6 +100,34 @@ class SecureTaskTreeInstaller:
                     {
                         "type": "command",
                         "command": str(hook_dest)
+                    }
+                ]
+            }
+        ]
+        
+        # Configure Stop/SubagentStop hooks for mandatory enforcement
+        stop_hook_dest = self.project_root / "security_hooks" / "stop_enforcement.sh"
+        os.chmod(stop_hook_dest, 0o755)
+        
+        settings["hooks"]["Stop"] = [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": str(stop_hook_dest)
+                    }
+                ]
+            }
+        ]
+        
+        settings["hooks"]["SubagentStop"] = [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": str(stop_hook_dest)
                     }
                 ]
             }
@@ -230,6 +259,8 @@ Files:
         print("  • Agent bypass prevention system")
         print("  • Evidence validation against actual tool results")
         print("  • Vague evidence detection and blocking")
+        print("  • 🚨 MANDATORY Stop/SubagentStop enforcement hooks")
+        print("  • Session completion blocked until MCP compliance verified")
         print()
         print("⚠️ IMPORTANT:")
         print("  • Restart Claude Desktop/Claude Code to activate hooks")

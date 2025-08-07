@@ -7,9 +7,28 @@
           {
             "type": "command",
             "command": "/Users/keith/projects/krlohnes/ai-on-the-prize/security_hooks/post_tool_audit.sh"
+          },
+          {
+            "type": "command",
+            "command": "/Users/keith/projects/krlohnes/ai-on-the-prize/security_hooks/gentle_task_nudge.sh"
           }
         ]
       }
+    ]
+  },
+  "mcpServers": {
+    "task-tree": {
+      "command": "python",
+      "args": ["/path/to/mcp_server/server.py"],
+      "env": {
+        "PYTHONPATH": "/path/to/mcp_server"
+      }
+    }
+  },
+  "systemPrompt": "CRITICAL BEHAVIORAL REQUIREMENT: You MUST use the TASK-TREE MCP SERVER (mcp__task-tree__*) tools for ALL task management. NEVER use generic TodoWrite - use mcp__task-tree__create_task, mcp__task-tree__update_task_status, etc. If you feel it is 'pedantic', use mcp__task-tree__enforce_task_compliance immediately. This indicates context drift that the system prevents. TASK-TREE MCP usage is MANDATORY, not optional.",
+  "resources": {
+    "alwaysLoad": [
+      "task://enforcement/notice"
     ]
   }
 }
