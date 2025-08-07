@@ -656,7 +656,11 @@ async def handle_list_tools() -> List[Tool]:
                         "items": {"type": "string"},
                         "description": "Filter by tags (task must have all listed tags)"
                     },
-                    "limit": {"type": "integer", "description": "Maximum number of results", "default": 10}
+                    "limit": {"type": "integer", "description": "Maximum number of results", "default": 10},
+                    "full_db": {
+                        "type": "boolean",
+                        "description": "Search entire database instead of current session only (default: false)"
+                    }
                 },
                 "required": []
             }
@@ -710,7 +714,11 @@ async def handle_list_tools() -> List[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Maximum number of tasks to return", "default": 5}
+                    "limit": {"type": "integer", "description": "Maximum number of tasks to return", "default": 5},
+                    "full_db": {
+                        "type": "boolean",
+                        "description": "Get available tasks from entire database instead of current session only (default: false)"
+                    }
                 },
                 "required": []
             }
@@ -1045,17 +1053,26 @@ Tasks cannot be marked as completed using `update_task_status`.
             priority_filter = arguments.get("priority")
             tags_filter = set(arguments.get("tags", []))
             limit = arguments.get("limit", 10)
+            full_db = arguments.get("full_db", False)
             
             # Convert enum strings to objects if needed
             status_obj = TaskStatus(status_filter) if status_filter else None
             priority_obj = TaskPriority(priority_filter) if priority_filter else None
             
-            tasks = graph.search_tasks(
+            # Get all tasks first, then filter by session if needed
+            all_tasks = graph.search_tasks(
                 query=query,
                 status=status_obj,
                 priority=priority_obj,
                 tags=tags_filter if tags_filter else None
             )
+            
+            # Filter by session unless full_db is requested
+            if not full_db:
+                current_session = get_current_session_id()
+                tasks = [task for task in all_tasks if task.session_id == current_session]
+            else:
+                tasks = all_tasks
             
             if not tasks:
                 return [TextContent(type="text", text="🔍 No tasks found matching the criteria")]
@@ -1268,8 +1285,16 @@ Tasks cannot be marked as completed using `update_task_status`.
         
         elif name == "get_available_tasks":
             limit = arguments.get("limit", 5)
+            full_db = arguments.get("full_db", False)
             
-            available = graph.get_available_tasks()
+            all_available = graph.get_available_tasks()
+            
+            # Filter by session unless full_db is requested
+            if not full_db:
+                current_session = get_current_session_id()
+                available = [task for task in all_available if task.session_id == current_session]
+            else:
+                available = all_available
             
             if not available:
                 return [TextContent(type="text", text="📋 No tasks are currently available to work on")]
