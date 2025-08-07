@@ -105,33 +105,6 @@ class SecureTaskTreeInstaller:
             }
         ]
         
-        # Configure Stop/SubagentStop hooks for mandatory enforcement
-        stop_hook_dest = self.project_root / "security_hooks" / "stop_enforcement.sh"
-        os.chmod(stop_hook_dest, 0o755)
-        
-        settings["hooks"]["Stop"] = [
-            {
-                "matcher": "*",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": str(stop_hook_dest)
-                    }
-                ]
-            }
-        ]
-        
-        settings["hooks"]["SubagentStop"] = [
-            {
-                "matcher": "*",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": str(stop_hook_dest)
-                    }
-                ]
-            }
-        ]
         
         # Write updated settings
         with open(claude_settings_file, 'w') as f:
