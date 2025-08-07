@@ -44,6 +44,27 @@ class TaskGraph:
                 CREATE INDEX IF NOT EXISTS idx_tasks_updated 
                 ON tasks(updated_at DESC)
             """)
+            
+            # Verification sessions table for persistent session storage
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS verification_sessions (
+                    session_id TEXT NOT NULL,
+                    working_directory TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    evidence TEXT NOT NULL,
+                    verification_steps TEXT NOT NULL,
+                    required_tools TEXT NOT NULL,
+                    tool_calls_made TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (session_id, task_id)
+                )
+            """)
+            
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_verification_sessions_path
+                ON verification_sessions(working_directory, session_id)
+            """)
     
     def _load_from_database(self) -> None:
         """Load tasks from database into memory."""
@@ -338,6 +359,61 @@ class TaskGraph:
             results.append(task)
         
         return sorted(results, key=lambda t: (t.priority, t.created_at))
+    
+    def save_verification_session(self, session_id: str, working_directory: str, task_id: str, session_data: Dict) -> None:
+        """Save verification session data to database."""
+        import json
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO verification_sessions 
+                (session_id, working_directory, task_id, evidence, verification_steps, required_tools, tool_calls_made, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (
+                session_id,
+                working_directory,
+                task_id,
+                session_data.get('evidence', ''),
+                session_data.get('verification_steps', ''),
+                json.dumps(session_data.get('required_tools', [])),
+                json.dumps(session_data.get('tool_calls_made', []))
+            ))
+    
+    def load_verification_sessions_for_path(self, working_directory: str) -> Dict:
+        """Load all verification sessions for a specific working directory."""
+        import json
+        sessions = {}
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT session_id, task_id, evidence, verification_steps, required_tools, tool_calls_made
+                FROM verification_sessions 
+                WHERE working_directory = ?
+                ORDER BY updated_at DESC
+            """, (working_directory,))
+            
+            for row in cursor.fetchall():
+                session_id, task_id, evidence, verification_steps, required_tools_json, tool_calls_json = row
+                
+                if session_id not in sessions:
+                    sessions[session_id] = {}
+                
+                sessions[session_id][task_id] = {
+                    'evidence': evidence,
+                    'verification_steps': verification_steps,
+                    'required_tools': json.loads(required_tools_json),
+                    'tool_calls_made': json.loads(tool_calls_json),
+                    'validated': False
+                }
+        
+        return sessions
+    
+    def cleanup_old_verification_sessions(self, days_old: int = 30) -> int:
+        """Remove verification sessions older than specified days. Returns count of deleted sessions."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                DELETE FROM verification_sessions 
+                WHERE created_at < datetime('now', '-{} days')
+            """.format(days_old))
+            return cursor.rowcount
     
     def export_to_dict(self) -> Dict:
         """Export the entire task graph to a dictionary."""

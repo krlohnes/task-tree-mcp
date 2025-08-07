@@ -47,7 +47,7 @@ context_injector: Optional[ContextInjector] = None
 # Session tracking
 current_session_id: Optional[str] = None
 
-# Enhanced verification state tracking
+# Enhanced verification state tracking - now using database-backed storage
 verification_sessions: Dict[str, Dict[str, Any]] = {}
 
 
@@ -67,18 +67,47 @@ def get_current_session_id() -> str:
     return current_session_id
 
 
+def get_current_working_directory() -> str:
+    """Get the current working directory for session isolation."""
+    import os
+    return os.getcwd()
+
+
+def load_verification_sessions_from_db() -> None:
+    """Load verification sessions from database for current working directory."""
+    global verification_sessions
+    graph = get_task_graph()
+    working_dir = get_current_working_directory()
+    verification_sessions = graph.load_verification_sessions_for_path(working_dir)
+
+
+def save_verification_session_to_db(session_id: str, task_id: str, session_data: Dict[str, Any]) -> None:
+    """Save verification session data to database."""
+    graph = get_task_graph()
+    working_dir = get_current_working_directory()
+    graph.save_verification_session(session_id, working_dir, task_id, session_data)
+
+
 def record_verification_claim(session_id: str, task_id: str, evidence: str, verification_steps: str) -> None:
     """Record a verification claim for later validation."""
+    # Load current sessions from database
+    load_verification_sessions_from_db()
+    
     if session_id not in verification_sessions:
         verification_sessions[session_id] = {}
     
-    verification_sessions[session_id][task_id] = {
+    session_data = {
         "evidence": evidence,
         "verification_steps": verification_steps,
         "required_tools": parse_required_tools(verification_steps),
         "tool_calls_made": [],
         "validated": False
     }
+    
+    verification_sessions[session_id][task_id] = session_data
+    
+    # Save to database
+    save_verification_session_to_db(session_id, task_id, session_data)
 
 
 def parse_required_tools(verification_steps: str) -> List[Dict[str, Any]]:
@@ -148,6 +177,9 @@ Final result: 3 passed, 0 failed"
 
 def check_verification_requirements(session_id: str, task_id: str) -> Dict[str, Any]:
     """Check if all required verification tools have been called."""
+    # Load current sessions from database
+    load_verification_sessions_from_db()
+    
     if session_id not in verification_sessions or task_id not in verification_sessions[session_id]:
         return {"valid": False, "reason": "No verification claim recorded"}
     
@@ -183,6 +215,10 @@ def get_task_graph() -> TaskGraph:
         logger.info(f"Using database path: {db_path}")
         task_graph = TaskGraph(db_path)
         context_injector = ContextInjector(task_graph, db_path)
+        
+        # Load verification sessions for current working directory
+        load_verification_sessions_from_db()
+        
     return task_graph
 
 
@@ -1374,8 +1410,9 @@ Tasks cannot be marked as completed using `update_task_status`.
             if not task:
                 return [TextContent(type="text", text=f"❌ Task {task_id_str} not found")]
             
-            # ENHANCED SECURITY: Validate against hook audit trail
+            # Load verification sessions from database
             session_id = get_session_id()
+            load_verification_sessions_from_db()
             
             if session_id not in verification_sessions or task_id_str not in verification_sessions[session_id]:
                 return [TextContent(type="text", text=f"❌ No verification claim recorded for this task. Use `record_verification_claim` first.")]
@@ -1386,6 +1423,9 @@ Tasks cannot be marked as completed using `update_task_status`.
                 "tool": tool_name,
                 "args": tool_args
             })
+            
+            # Save updated session data to database
+            save_verification_session_to_db(session_id, task_id_str, session_data)
             
             response = f"📤 **Verification Evidence Submitted**\n\n"
             response += f"🎯 **Task:** {task.title}\n"
