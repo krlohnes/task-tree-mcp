@@ -8,6 +8,7 @@ and interactive approval workflow.
 
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from uuid import UUID
@@ -43,6 +44,9 @@ if not HOOKS_AVAILABLE:
 task_graph: Optional[TaskGraph] = None
 context_injector: Optional[ContextInjector] = None
 
+# Session tracking
+current_session_id: Optional[str] = None
+
 # Enhanced verification state tracking
 verification_sessions: Dict[str, Dict[str, Any]] = {}
 
@@ -52,6 +56,15 @@ def get_session_id() -> str:
     # In a real implementation, this would use request context
     # For this demo, we'll use a simple global session
     return "current_session"
+
+
+def get_current_session_id() -> str:
+    """Get or create the current Claude Code session ID."""
+    global current_session_id
+    if current_session_id is None:
+        # Generate session ID based on current timestamp
+        current_session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    return current_session_id
 
 
 def record_verification_claim(session_id: str, task_id: str, evidence: str, verification_steps: str) -> None:
@@ -753,6 +766,37 @@ async def handle_list_tools() -> List[Tool]:
                 },
                 "required": ["task_id", "evidence", "verification_steps", "criteria_mapping"]
             }
+        ),
+        Tool(
+            name="export_task_tree",
+            description="Export the entire task tree in human-readable or JSON format",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "enum": ["human", "json", "markdown"],
+                        "description": "Export format: 'human' for tree view, 'json' for machine-readable, 'markdown' for documentation"
+                    },
+                    "include_completed": {
+                        "type": "boolean",
+                        "description": "Include completed tasks in export (default: true)"
+                    },
+                    "save_to_file": {
+                        "type": "boolean",
+                        "description": "Save export to file instead of displaying (default: false)"
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Custom file path for export (optional - uses default naming if not provided)"
+                    },
+                    "full_db": {
+                        "type": "boolean",
+                        "description": "Export entire database instead of session-only tasks (default: false)"
+                    }
+                },
+                "required": ["format"]
+            }
         )
     ]
 
@@ -881,14 +925,15 @@ This task cannot be created without completion criteria.
 • Documentation updated to reflect changes
 • Error handling covers all edge cases""")]
             
-            # Create the task
+            # Create the task with current session ID
             task = graph.create_task(
                 title=title,
                 description=description,
                 parent_id=parent_id,
                 priority=TaskPriority(priority_str),
                 tags=tags,
-                completion_criteria=completion_criteria
+                completion_criteria=completion_criteria,
+                session_id=get_current_session_id()
             )
             
             if set_as_current:
@@ -1476,6 +1521,229 @@ Tasks cannot be marked as completed using `update_task_status`.
             
             response += f"**🎉 Task Automatically Completed!**\n"
             response += f"The task has been marked as completed after successful verification."
+            
+            return [TextContent(type="text", text=response)]
+        
+        elif name == "export_task_tree":
+            format_type = arguments.get("format", "human")
+            include_completed = arguments.get("include_completed", True)
+            save_to_file = arguments.get("save_to_file", False)
+            custom_file_path = arguments.get("file_path")
+            full_db = arguments.get("full_db", False)
+            
+            # Get tasks based on scope (session-only or full database)
+            if full_db:
+                all_tasks = list(graph.nodes.values())
+            else:
+                # Filter to current session tasks only
+                current_session = get_current_session_id()
+                all_tasks = [task for task in graph.nodes.values() if task.session_id == current_session]
+            
+            # Filter out completed tasks if requested
+            if not include_completed:
+                all_tasks = [t for t in all_tasks if t.status != TaskStatus.COMPLETED]
+            
+            if format_type == "json":
+                # JSON export for machine processing
+                export_data = {
+                    "export_time": datetime.now().isoformat(),
+                    "statistics": graph.get_task_stats(),
+                    "tasks": []
+                }
+                
+                for task in all_tasks:
+                    task_data = {
+                        "id": str(task.id),
+                        "title": task.title,
+                        "description": task.description,
+                        "status": task.status.value if hasattr(task.status, 'value') else str(task.status),
+                        "priority": task.priority.value if hasattr(task.priority, 'value') else str(task.priority),
+                        "parent_id": str(task.parent_id) if task.parent_id else None,
+                        "child_ids": [str(cid) for cid in task.child_ids],
+                        "tags": list(task.tags),
+                        "completion_criteria": task.completion_criteria,
+                        "created_at": task.created_at.isoformat(),
+                        "updated_at": task.updated_at.isoformat() if task.updated_at else None,
+                        "completed_at": task.completed_at.isoformat() if task.completed_at else None
+                    }
+                    export_data["tasks"].append(task_data)
+                
+                import json
+                response = f"```json\n{json.dumps(export_data, indent=2)}\n```"
+                
+            elif format_type == "markdown":
+                # Markdown export for documentation
+                response = f"# Task Tree Export\n\n"
+                response += f"*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+                
+                # Statistics
+                stats = graph.get_task_stats()
+                response += f"## Statistics\n\n"
+                response += f"- **Total Tasks:** {stats['total']}\n"
+                response += f"- **Completed:** {stats['completed']}\n"
+                response += f"- **In Progress:** {stats['in_progress']}\n"
+                response += f"- **Pending:** {stats['pending']}\n"
+                response += f"- **Blocked:** {stats['blocked']}\n\n"
+                
+                # Build tree structure
+                response += f"## Task Hierarchy\n\n"
+                
+                def render_task_markdown(task, indent=0):
+                    status_emoji = {
+                        TaskStatus.PENDING: "⏳",
+                        TaskStatus.IN_PROGRESS: "🔄",
+                        TaskStatus.COMPLETED: "✅",
+                        TaskStatus.BLOCKED: "🚫",
+                        TaskStatus.CANCELLED: "❌"
+                    }
+                    
+                    prefix = "  " * indent + "- "
+                    emoji = status_emoji.get(task.status, "❓")
+                    result = f"{prefix}{emoji} **{task.title}**\n"
+                    
+                    if task.description:
+                        result += f"{'  ' * (indent + 1)}*{task.description}*\n"
+                    
+                    if task.completion_criteria:
+                        result += f"{'  ' * (indent + 1)}📋 Criteria: {task.completion_criteria}\n"
+                    
+                    if task.tags:
+                        result += f"{'  ' * (indent + 1)}🏷️ Tags: {', '.join(task.tags)}\n"
+                    
+                    # Render children
+                    children = graph.get_children(task.id)
+                    for child in children:
+                        if include_completed or child.status != TaskStatus.COMPLETED:
+                            result += render_task_markdown(child, indent + 1)
+                    
+                    return result
+                
+                # Render all root tasks
+                root_tasks = graph.get_root_tasks()
+                for root in root_tasks:
+                    if include_completed or root.status != TaskStatus.COMPLETED:
+                        response += render_task_markdown(root)
+                
+            else:  # human format
+                # Human-readable tree format
+                response = f"📊 **Task Tree Export**\n"
+                response += f"🕐 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                
+                # Statistics summary for displayed tasks
+                completed_count = len([t for t in all_tasks if t.status == TaskStatus.COMPLETED])
+                in_progress_count = len([t for t in all_tasks if t.status == TaskStatus.IN_PROGRESS])
+                pending_count = len([t for t in all_tasks if t.status == TaskStatus.PENDING])
+                
+                scope_desc = "full database" if full_db else "current session"
+                response += f"📈 **Summary:** {len(all_tasks)} tasks from {scope_desc} "
+                response += f"(✅ {completed_count} completed, "
+                response += f"🔄 {in_progress_count} in progress, "
+                response += f"⏳ {pending_count} pending)\n\n"
+                
+                response += "─" * 60 + "\n\n"
+                
+                def render_task_tree(task, prefix="", is_last=True):
+                    status_map = {
+                        TaskStatus.PENDING: "⏳",
+                        TaskStatus.IN_PROGRESS: "🔄",
+                        TaskStatus.COMPLETED: "✅",
+                        TaskStatus.BLOCKED: "🚫",
+                        TaskStatus.CANCELLED: "❌"
+                    }
+                    
+                    # Draw tree branch
+                    branch = "└── " if is_last else "├── "
+                    continuation = "    " if is_last else "│   "
+                    
+                    status_emoji = status_map.get(task.status, "❓")
+                    priority_emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+                    pri_emoji = priority_emoji.get(task.priority.value if hasattr(task.priority, 'value') else str(task.priority), "")
+                    
+                    result = f"{prefix}{branch}{status_emoji} {pri_emoji} {task.title}\n"
+                    
+                    # Add task details with proper indentation
+                    detail_prefix = prefix + continuation
+                    if task.description:
+                        result += f"{detail_prefix}📝 {task.description}\n"
+                    
+                    if task.completion_criteria:
+                        result += f"{detail_prefix}🎯 {task.completion_criteria}\n"
+                    
+                    if task.tags:
+                        result += f"{detail_prefix}🏷️ {', '.join(task.tags)}\n"
+                    
+                    # Get and render children
+                    children = graph.get_children(task.id)
+                    if not include_completed:
+                        children = [c for c in children if c.status != TaskStatus.COMPLETED]
+                    
+                    for i, child in enumerate(children):
+                        is_last_child = (i == len(children) - 1)
+                        result += render_task_tree(child, detail_prefix, is_last_child)
+                    
+                    return result
+                
+                # Render all root tasks
+                root_tasks = graph.get_root_tasks()
+                if not include_completed:
+                    root_tasks = [r for r in root_tasks if r.status != TaskStatus.COMPLETED]
+                
+                if not root_tasks:
+                    response += "📭 No tasks to display\n"
+                else:
+                    for i, root in enumerate(root_tasks):
+                        is_last = (i == len(root_tasks) - 1)
+                        response += render_task_tree(root, "", is_last)
+            
+            # Handle file saving if requested
+            if save_to_file:
+                # Generate default file path if none provided
+                if not custom_file_path:
+                    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                    file_extension = {"json": "json", "markdown": "md", "human": "txt"}[format_type]
+                    scope_suffix = "_full-db" if full_db else "_session"
+                    status_suffix = "" if include_completed else "_active-only"
+                    custom_file_path = f"task-tree_{timestamp}{scope_suffix}{status_suffix}.{file_extension}"
+                
+                try:
+                    # Create directory if it doesn't exist
+                    file_path = Path(custom_file_path)
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Write to file
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        if format_type == "json":
+                            # For JSON, write the raw JSON data without markdown code blocks
+                            json_response = response.strip()
+                            if json_response.startswith("```json\n"):
+                                json_response = json_response[8:]  # Remove ```json\n
+                            if json_response.endswith("\n```"):
+                                json_response = json_response[:-4]  # Remove \n```
+                            f.write(json_response)
+                        else:
+                            f.write(response)
+                    
+                    file_size = file_path.stat().st_size
+                    response = f"✅ **Export Saved Successfully**\n\n"
+                    response += f"📁 **File:** `{file_path.absolute()}`\n"
+                    response += f"📊 **Format:** {format_type.upper()}\n"
+                    scope_desc = "full database" if full_db else "current session"
+                    status_desc = " (active only)" if not include_completed else ""
+                    response += f"📈 **Tasks:** {len(all_tasks)} from {scope_desc}{status_desc}\n"
+                    response += f"📏 **Size:** {file_size:,} bytes\n\n"
+                    
+                    # Show a preview of what was saved
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        preview_content = f.read(300)
+                        if len(preview_content) >= 300:
+                            preview_content = preview_content[:297] + "..."
+                    response += f"**Preview:**\n```\n{preview_content}\n```"
+                    
+                except Exception as e:
+                    response = f"❌ **Export Failed**\n\n"
+                    response += f"**Error:** {str(e)}\n"
+                    response += f"**File Path:** `{custom_file_path}`\n\n"
+                    response += f"**Export content was generated successfully but could not be saved to file.**"
             
             return [TextContent(type="text", text=response)]
         

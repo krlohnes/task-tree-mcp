@@ -45,6 +45,7 @@ class TaskNode(BaseModel):
     child_ids: Set[UUID] = Field(default_factory=set, description="Set of child task IDs")
     
     # Metadata
+    session_id: Optional[str] = Field(None, description="Claude Code session that created this task")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Task creation timestamp")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp")
     completed_at: Optional[datetime] = Field(None, description="Task completion timestamp")

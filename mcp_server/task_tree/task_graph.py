@@ -82,7 +82,8 @@ class TaskGraph:
         parent_id: Optional[UUID] = None,
         priority: TaskPriority = TaskPriority.MEDIUM,
         tags: Optional[Set[str]] = None,
-        completion_criteria: Optional[str] = None
+        completion_criteria: Optional[str] = None,
+        session_id: Optional[str] = None
     ) -> TaskNode:
         """Create a new task node."""
         task = TaskNode(
@@ -91,7 +92,8 @@ class TaskGraph:
             parent_id=parent_id,
             priority=priority,
             tags=tags or set(),
-            completion_criteria=completion_criteria
+            completion_criteria=completion_criteria,
+            session_id=session_id
         )
         
         # Add to graph and lookup dict
