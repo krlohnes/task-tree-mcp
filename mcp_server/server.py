@@ -171,12 +171,19 @@ def validate_evidence_with_claude_code(task_title: str, task_description: str, c
 
 VALIDATION REQUIREMENTS:
 1. Evidence must be SPECIFIC and DETAILED
-2. For test-related tasks, MUST include exact test commands and results  
+2. Actual test commands and the overall test success or failure
 3. NO VAGUE CLAIMS like 'successfully completed' or 'tests pass'
 4. Evidence must clearly map to the success criteria
-5. Must include actual filenames, commands, outputs, or error messages
+5. Must include actual filenames, commands, or error messages
 
 BE RUTHLESS. REJECT VAGUE EVIDENCE. DEMAND SPECIFICS.
+
+ACCEPTABLE EVIDENCE EXAMPLE:
+"Ran: python3 test_calculator.py
+Result: All 5 tests passed successfully  
+Files: test_calculator.py, calculator.py"
+
+UNACCEPTABLE: "Tests mostly work fine, implementation looks solid"
 
 TASK CONTEXT:
 - Title: {task_title}
