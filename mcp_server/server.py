@@ -167,23 +167,26 @@ def validate_evidence_with_claude_code(task_title: str, task_description: str, c
     import subprocess
     
     # Create the validation prompt
-    validation_prompt = f"""You are a STRICT evidence validator for a task management system.
+    validation_prompt = f"""You are an evidence validator for a task management system.
 
-VALIDATION REQUIREMENTS:
-1. Evidence should be specific and detailed
-2. For test-related tasks, include test commands and overall success/failure
-3. Avoid vague claims like 'successfully completed' or 'tests pass' without context
-4. Evidence should map to the success criteria
-5. Include relevant details like filenames, commands, or key outcomes when applicable
+Your job: Determine if the evidence reasonably supports the task completion claim.
 
-REJECT VAGUE EVIDENCE. REQUIRE REASONABLE SPECIFICS.
+FOCUS ON:
+- Does the evidence support the claim being made?
+- Are there concrete details rather than pure generalizations?
+- Does it address the success criteria?
 
-ACCEPTABLE EVIDENCE EXAMPLE:
-"Ran: python3 test_calculator.py
-Result: All 5 tests passed successfully  
-Files: test_calculator.py, calculator.py"
+REJECT ONLY IF:
+- Evidence is extremely vague ("it works", "looks good")  
+- Evidence contradicts the success criteria
+- No connection between evidence and the task
 
-UNACCEPTABLE: "Tests mostly work fine, implementation looks solid"
+ACCEPT IF:
+- Evidence provides reasonable support for the claim
+- Some concrete details are included
+- Maps to what the task actually requires
+
+Don't demand specific formats - focus on substance over style.
 
 TASK CONTEXT:
 - Title: {task_title}
@@ -801,20 +804,6 @@ async def handle_list_tools() -> List[Tool]:
         ),
 # Removed submit_verification_evidence - using hook validation only
         Tool(
-            name="confirm_evidence",
-            description="Confirm evidence after making required tool calls (enhanced verification)",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "task_id": {"type": "string", "description": "Task ID to confirm completion for"},
-                    "evidence": {"type": "string", "description": "The evidence being confirmed"},
-                    "verification_steps": {"type": "string", "description": "Specific steps taken to verify the evidence is accurate"},
-                    "criteria_mapping": {"type": "string", "description": "How each piece of evidence maps to specific completion criteria"}
-                },
-                "required": ["task_id", "evidence", "verification_steps", "criteria_mapping"]
-            }
-        ),
-        Tool(
             name="adjust_validation_timeout",
             description="Request to adjust the evidence validation timeout for slower systems",
             inputSchema={
@@ -1421,85 +1410,46 @@ Tasks cannot be marked as completed using `update_task_status`.
             session_id = get_session_id()
             record_verification_claim(session_id, task_id_str, evidence, verification_steps)
             
-            response = f"📝 **Verification Claim Recorded**\n\n"
-            response += f"🎯 **Task:** {task.title}\n"
-            response += f"📋 **Evidence Claimed:** {evidence}\n"
-            response += f"🔧 **Verification Steps:** {verification_steps}\n\n"
+            # Immediately validate the evidence using Claude Code
+            validation_result = check_verification_requirements(session_id, task_id_str, task)
             
-            # Add test execution reminder if this appears to be a test-related task
-            if detect_test_related_task(task.title, task.description or "", evidence):
-                response += generate_test_execution_reminder()
-                response += "\n"
+            if validation_result["valid"]:
+                # Evidence accepted - auto-complete the task
+                graph.update_task_status(task_id, "completed")
+                save_verification_sessions_to_db()
                 
-            response += f"**MANDATORY NEXT STEP:**\n"
-            response += f"Use `confirm_evidence` NOW to complete verification. No delays.\n"
-            response += f"\n**🚨 WARNING: Evidence will be validated against hook audit trail. False claims will be REJECTED.**"
-            
-            return [TextContent(type="text", text=response)]
-            
-# Removed submit_verification_evidence handler - using hook validation only
-            
-        elif name == "confirm_evidence":
-            task_id_str = arguments["task_id"]
-            evidence = arguments["evidence"]
-            verification_steps = arguments["verification_steps"]
-            criteria_mapping = arguments["criteria_mapping"]
-            
-            try:
-                task_id = UUID(task_id_str)
-            except ValueError:
-                return [TextContent(type="text", text="❌ Invalid task ID format")]
-            
-            task = graph.get_task(task_id)
-            if not task:
-                return [TextContent(type="text", text=f"❌ Task {task_id_str} not found")]
-            
-            # Enhanced verification check using Claude Code intelligent validation
-            session_id = get_session_id()
-            verification_result = check_verification_requirements(session_id, task_id_str, task)
-            
-            if not verification_result["valid"]:
-                response = f"❌ **Verification Failed**\n\n"
-                response += f"📝 **Task:** {task.title}\n"
+                response = f"✅ **Evidence Accepted - Task Completed!**\n\n"
+                response += f"🎯 **Task:** {task.title}\n"
+                response += f"📋 **Evidence:** {evidence}\n"
+                response += f"🔧 **Verification:** {verification_steps}\n\n"
+                response += f"🎉 **Validation Result:** {validation_result['reason']}\n\n"
+                response += f"**Task has been automatically marked as completed after successful validation.**"
+                
+                return [TextContent(type="text", text=response)]
+            else:
+                # Evidence rejected - provide feedback for revision
+                response = f"❌ **Evidence Rejected - Please Revise**\n\n"
+                response += f"🎯 **Task:** {task.title}\n"
                 response += f"📋 **Your Evidence:** {evidence}\n"
-                response += f"🔍 **Your Verification Steps:** {verification_steps}\n\n"
+                response += f"🔧 **Your Verification Steps:** {verification_steps}\n\n"
+                response += f"**Issue:** {validation_result['reason']}\n\n"
+                response += f"**To fix:** Use `record_verification_claim` again with improved evidence that includes:\n"
                 
-                if "reason" in verification_result:
-                    response += f"**Issue:** {verification_result['reason']}\n\n"
+                # Add test execution reminder if this appears to be a test-related task
+                if detect_test_related_task(task.title, task.description or "", evidence):
+                    response += generate_test_execution_reminder()
+                    response += "\n"
+                else:
+                    response += f"• Specific details about what was accomplished\n"
+                    response += f"• Concrete evidence that maps to success criteria\n"
+                    response += f"• Actual commands, files, or outcomes (not generalizations)\n\n"
                 
-                response += f"**FIX THIS NOW:**\n"
-                response += f"1. Use `record_verification_claim` with COMPLETE, DETAILED evidence\n"
-                response += f"2. Include SPECIFIC details about what you accomplished\n"
-                response += f"3. Use `confirm_evidence` only after providing PROPER evidence\n"
-                response += f"\n**TASK REMAINS BLOCKED until evidence requirements are met.**"
+                response += f"**Task remains in progress until acceptable evidence is provided.**"
                 
                 return [TextContent(type="text", text=response)]
             
-            response = f"✅ **Evidence Confirmed - Task Completion Approved**\n\n"
-            response += f"📝 **Task:** {task.title}\n"
-            if task.completion_criteria:
-                response += f"🎯 **Success Criteria:** {task.completion_criteria}\n"
-            else:
-                response += f"🏷️ **Tagged as:** #trivial (no criteria needed)\n"
-            response += f"📋 **Evidence:** {evidence}\n"
-            response += f"🔍 **Verification Steps:** {verification_steps}\n"
-            response += f"🗺️ **Criteria Mapping:** {criteria_mapping}\n\n"
+# Removed submit_verification_evidence handler - using hook validation only
             
-            # Add test execution reminder if this appears to be a test-related task
-            if detect_test_related_task(task.title, task.description or "", evidence):
-                response += "🧪 **TEST EXECUTION VERIFIED**\n"
-                response += "Good! Your evidence includes test execution results as required for test-related tasks.\n\n"
-            response += f"**✅ Evidence validated against hook audit trail.**\n\n"
-            
-            # Automatically complete the task after successful verification
-            task.mark_completed()
-            graph.update_task(task)
-            
-            response += f"**🎉 Task Automatically Completed!**\n"
-            response += f"The task has been marked as completed after successful verification."
-            
-            return [TextContent(type="text", text=response)]
-        
         elif name == "adjust_validation_timeout":
             global validation_timeout
             
