@@ -134,42 +134,121 @@ def detect_test_related_task(task_title: str, task_description: str, evidence: s
 
 
 def generate_test_execution_reminder() -> str:
-    """Generate reminder about test execution for test-related tasks."""
+    """Generate MANDATORY reminder about test execution for test-related tasks."""
     return """
-🧪 **TEST EXECUTION REMINDER**
-Since this task involves tests, your evidence MUST include:
-• Confirmation that tests were executed
-• Test results showing they pass
-• Command used to run the tests (e.g., 'npm test', 'pytest', 'python -m unittest')
-• Any test output or screenshots showing successful execution
+🚨 **TEST EXECUTION EVIDENCE MANDATORY**
+This task involves tests. Your evidence is REQUIRED to include ALL of the following:
+• PROOF that tests were executed (command + output)  
+• EXACT test results showing pass/fail status
+• COMPLETE command used to run tests
+• ACTUAL test output, not summaries
 
-**Example evidence for test-related tasks:**
-"Created test file test_feature.py with 3 test cases. Executed with 'pytest test_feature.py' and all tests passed:
-- test_basic_functionality: PASSED
-- test_edge_cases: PASSED  
-- test_error_handling: PASSED
-Final result: 3 passed, 0 failed"
+**EVIDENCE WILL BE REJECTED if it lacks:**
+- Specific test execution commands
+- Actual test output/results
+- Pass/fail counts and details
+
+**EXAMPLE OF ACCEPTABLE EVIDENCE:**
+"Executed command: pytest test_feature.py
+Output showed: 3 passed, 0 failed
+Specific results: test_basic_functionality PASSED, test_edge_cases PASSED, test_error_handling PASSED"
+
+**UNACCEPTABLE:** "Tests pass" or "All tests successful" or other vague claims.
+
+**NO EXCUSES FOR FAILING TESTS. FAILING TESTS MUST BE FIXED OR I WILL NOT ACCEPT THE EVIDENCE.**
 """
+
+
+def validate_evidence_with_claude_code(task_title: str, task_description: str, completion_criteria: str, evidence: str, verification_steps: str) -> Dict[str, Any]:
+    """Use Claude Code to perform intelligent evidence validation."""
+    import subprocess
+    
+    # Create the validation prompt
+    validation_prompt = f"""You are an EXTREMELY STRICT evidence validator for a task management system.
+
+VALIDATION REQUIREMENTS:
+1. Evidence must be SPECIFIC and DETAILED
+2. For test-related tasks, MUST include exact test commands and results  
+3. NO VAGUE CLAIMS like 'successfully completed' or 'tests pass'
+4. Evidence must clearly map to the success criteria
+5. Must include actual filenames, commands, outputs, or error messages
+
+BE RUTHLESS. REJECT VAGUE EVIDENCE. DEMAND SPECIFICS.
+
+TASK CONTEXT:
+- Title: {task_title}
+- Description: {task_description or 'No description'}
+- Success Criteria: {completion_criteria or 'No criteria specified'}
+
+EVIDENCE CLAIMED:
+{evidence}
+
+VERIFICATION STEPS:
+{verification_steps}
+
+Validate this evidence. Respond with: VALID or INVALID followed by detailed reasoning."""
+
+    try:
+        # Use claude with stdin for validation (claude -p hangs with long prompts)
+        result = subprocess.run([
+            'claude'
+        ], input=validation_prompt, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            response = result.stdout.strip()
+            
+            # Check if validation passed or failed
+            if response.upper().startswith('VALID'):
+                return {"valid": True, "reason": f"Evidence accepted: {response}"}
+            elif response.upper().startswith('INVALID'):
+                return {"valid": False, "reason": f"Evidence rejected: {response}"}
+            else:
+                # Fallback analysis
+                response_lower = response.lower()
+                if 'invalid' in response_lower or 'reject' in response_lower or 'fail' in response_lower:
+                    return {"valid": False, "reason": f"Evidence rejected: {response[:300]}"}
+                else:
+                    return {"valid": True, "reason": f"Evidence accepted: {response[:300]}"}
+        else:
+            return {"valid": False, "reason": f"Validator failed (exit {result.returncode}): {result.stderr[:200]}"}
+            
+    except subprocess.TimeoutExpired:
+        return {"valid": False, "reason": "Validation timeout after 10 seconds - evidence rejected"}
+    except Exception as e:
+        return {"valid": False, "reason": f"Validation error - evidence rejected: {str(e)}"}
 
 
 # Removed validate_tool_call_evidence function - no longer needed with simplified validation
 
 
-def check_verification_requirements(session_id: str, task_id: str) -> Dict[str, Any]:
-    """Check verification using hook audit trail only."""
+def check_verification_requirements(session_id: str, task_id: str, task: 'TaskNode' = None) -> Dict[str, Any]:
+    """Check verification using Claude Code intelligent validation."""
     # Load current sessions from database
     load_verification_sessions_from_db()
     
     if session_id not in verification_sessions or task_id not in verification_sessions[session_id]:
         return {"valid": False, "reason": "No verification claim recorded"}
     
-    # With hook validation, we just check that evidence was provided
-    # The actual validation happens against the hook audit trail
     session_data = verification_sessions[session_id][task_id]
-    if not session_data.get("evidence") or not session_data.get("evidence").strip():
+    evidence = session_data.get("evidence", "").strip()
+    verification_steps = session_data.get("verification_steps", "").strip()
+    
+    if not evidence:
         return {"valid": False, "reason": "No evidence provided"}
     
-    return {"valid": True}
+    # Use Claude Code to validate the evidence intelligently
+    if task:
+        validation_result = validate_evidence_with_claude_code(
+            task_title=task.title,
+            task_description=task.description or "",
+            completion_criteria=task.completion_criteria or "",
+            evidence=evidence,
+            verification_steps=verification_steps
+        )
+        return validation_result
+    else:
+        # Fallback to basic validation if no task provided
+        return {"valid": True, "reason": "Evidence provided (no intelligent validation - task not found)"}
 
 
 def get_task_graph() -> TaskGraph:
@@ -440,14 +519,14 @@ AI AGENT MUST ACKNOWLEDGE AND FOLLOW THIS CONTEXT:
 
 {context}
 
-🛑 COMPLIANCE REQUIRED:
-- This TASK-TREE MCP system is MANDATORY, not optional
-- AI agents MUST use mcp__task-tree__* tools specifically
-- Task completion requires mcp__task-tree__record_verification_claim and mcp__task-tree__confirm_evidence
-- Do NOT bypass or ignore these requirements
-- Use mcp__task-tree__* tools instead of generic TodoWrite
+🚨 MANDATORY COMPLIANCE - NO EXCEPTIONS:
+- TASK-TREE MCP system is REQUIRED, not optional
+- You WILL use mcp__task-tree__* tools - no alternatives accepted
+- Task completion BLOCKED without mcp__task-tree__record_verification_claim and mcp__task-tree__confirm_evidence
+- ZERO tolerance for bypassing or ignoring these requirements
+- Generic TodoWrite is FORBIDDEN - use TASK-TREE MCP tools ONLY
 
-FAILURE TO COMPLY INDICATES AI BEHAVIORAL DEVIATION"""
+FAILURE TO COMPLY = IMMEDIATE BEHAVIORAL VIOLATION"""
         return enforced_context
     
     elif uri == "task://enforcement/notice":
@@ -799,11 +878,11 @@ THIS IS A MANDATORY SYSTEM CHECK FOR AI AGENTS:
 
 🛑 MANDATORY REQUIREMENTS FOR AI AGENTS:
 
-1. ✅ ALWAYS use TASK-TREE MCP SERVER tools (mcp__task-tree__create_task, mcp__task-tree__update_task_status)
-2. ✅ NEVER bypass TASK-TREE MCP system due to "frustration" or "pedantic" feelings  
-3. ✅ ALWAYS use mcp__task-tree__* tools instead of generic TodoWrite
-4. ✅ ALWAYS use mcp__task-tree__record_verification_claim and mcp__task-tree__confirm_evidence for task completion
-5. ✅ ALWAYS acknowledge current task context from mcp__task-tree__get_current_task
+1. 🚨 YOU WILL use TASK-TREE MCP tools (mcp__task-tree__create_task, mcp__task-tree__update_task_status) - NO EXCEPTIONS
+2. 🚨 BYPASSING TASK-TREE MCP system is FORBIDDEN regardless of "frustration" or other excuses
+3. 🚨 Generic TodoWrite is BANNED - use mcp__task-tree__* tools ONLY
+4. 🚨 Task completion REQUIRES mcp__task-tree__record_verification_claim and mcp__task-tree__confirm_evidence - NO SHORTCUTS
+5. 🚨 You MUST acknowledge current task context from mcp__task-tree__get_current_task
 
 ⚠️ COMPLIANCE VIOLATIONS INDICATE:
 - Context drift (losing sight of larger goals)
@@ -1156,18 +1235,16 @@ Tasks cannot be marked as completed using `update_task_status`.
                 response += f"🎯 **Success Criteria:** {task.completion_criteria}\n"
                 response += f"💭 **Your Reason:** {reason}\n"
                 response += f"📋 **Your Evidence:** {evidence}\n\n"
-                response += f"**⚠️ Tool-Based Evidence Verification Required**\n"
-                response += f"Before this task can be completed, you must provide evidence using actual tool calls.\n\n"
-                response += f"**Simplified verification approach:**\n"
-                response += f"1. **Record your evidence**: Use `record_verification_claim` to state what you accomplished\n"
-                response += f"2. **Confirm completion**: Use `confirm_evidence` to complete the task\n\n"
-                response += f"**Step 1: Record your evidence**\n"
-                response += f"Use `record_verification_claim` with:\n"
+                response += f"🚨 **EVIDENCE VERIFICATION MANDATORY**\n"
+                response += f"Task completion BLOCKED. You MUST provide detailed evidence. No exceptions.\n\n"
+                response += f"**REQUIRED ACTIONS:**\n"
+                response += f"1. **RECORD EVIDENCE**: Use `record_verification_claim` NOW\n"
+                response += f"2. **CONFIRM COMPLETION**: Use `confirm_evidence` to finish\n\n"
+                response += f"**EVIDENCE REQUIREMENTS:**\n"
                 response += f"- task_id: `{task_id_str}`\n"
-                response += f"- evidence: Detailed description of what you accomplished\n"
-                response += f"- verification_steps: Brief description of how you verified your work\n\n"
-                response += f"**Step 2: Complete verification**\n"
-                response += f"Use `confirm_evidence` to finalize task completion. The system will validate your evidence against the hook audit trail."
+                response += f"- evidence: DETAILED description of what you accomplished with SPECIFICS\n"
+                response += f"- verification_steps: HOW you verified your work\n\n"
+                response += f"**NO SHORTCUTS. NO BYPASSING. PROVIDE EVIDENCE OR TASK REMAINS INCOMPLETE.**"
             
             elif "trivial" in task.tags:
                 # Trivial tasks can be completed with simple evidence confirmation
@@ -1332,9 +1409,9 @@ Tasks cannot be marked as completed using `update_task_status`.
                 response += generate_test_execution_reminder()
                 response += "\n"
                 
-            response += f"**Next Step:**\n"
-            response += f"Use `confirm_evidence` to complete task verification.\n"
-            response += f"\n**⚠️ Your evidence will be validated against the hook audit trail**"
+            response += f"**MANDATORY NEXT STEP:**\n"
+            response += f"Use `confirm_evidence` NOW to complete verification. No delays.\n"
+            response += f"\n**🚨 WARNING: Evidence will be validated against hook audit trail. False claims will be REJECTED.**"
             
             return [TextContent(type="text", text=response)]
             
@@ -1355,9 +1432,9 @@ Tasks cannot be marked as completed using `update_task_status`.
             if not task:
                 return [TextContent(type="text", text=f"❌ Task {task_id_str} not found")]
             
-            # Enhanced verification check
+            # Enhanced verification check using Claude Code intelligent validation
             session_id = get_session_id()
-            verification_result = check_verification_requirements(session_id, task_id_str)
+            verification_result = check_verification_requirements(session_id, task_id_str, task)
             
             if not verification_result["valid"]:
                 response = f"❌ **Verification Failed**\n\n"
@@ -1368,10 +1445,11 @@ Tasks cannot be marked as completed using `update_task_status`.
                 if "reason" in verification_result:
                     response += f"**Issue:** {verification_result['reason']}\n\n"
                 
-                response += f"**To fix this:**\n"
-                response += f"1. Use `record_verification_claim` again with complete evidence\n"
-                response += f"2. Ensure your evidence clearly describes what you accomplished\n"
-                response += f"3. Try `confirm_evidence` again after recording proper evidence"
+                response += f"**FIX THIS NOW:**\n"
+                response += f"1. Use `record_verification_claim` with COMPLETE, DETAILED evidence\n"
+                response += f"2. Include SPECIFIC details about what you accomplished\n"
+                response += f"3. Use `confirm_evidence` only after providing PROPER evidence\n"
+                response += f"\n**TASK REMAINS BLOCKED until evidence requirements are met.**"
                 
                 return [TextContent(type="text", text=response)]
             
