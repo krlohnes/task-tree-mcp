@@ -192,7 +192,7 @@ Validate this evidence. Respond with: VALID or INVALID followed by detailed reas
         # Use claude with stdin for validation (claude -p hangs with long prompts)
         result = subprocess.run([
             'claude'
-        ], input=validation_prompt, capture_output=True, text=True, timeout=10)
+        ], input=validation_prompt, capture_output=True, text=True, timeout=30)
         
         if result.returncode == 0:
             response = result.stdout.strip()
