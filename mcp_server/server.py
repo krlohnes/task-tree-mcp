@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from uuid import UUID
 
+# Global validation timeout (configurable via MCP tool)
+validation_timeout = 30
+
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
@@ -192,7 +195,7 @@ Validate this evidence. Respond with: VALID or INVALID followed by detailed reas
         # Use claude with stdin for validation (claude -p hangs with long prompts)
         result = subprocess.run([
             'claude'
-        ], input=validation_prompt, capture_output=True, text=True, timeout=30)
+        ], input=validation_prompt, capture_output=True, text=True, timeout=validation_timeout)
         
         if result.returncode == 0:
             response = result.stdout.strip()
@@ -213,7 +216,7 @@ Validate this evidence. Respond with: VALID or INVALID followed by detailed reas
             return {"valid": False, "reason": f"Validator failed (exit {result.returncode}): {result.stderr[:200]}"}
             
     except subprocess.TimeoutExpired:
-        return {"valid": False, "reason": "Validation timeout after 10 seconds - evidence rejected"}
+        return {"valid": False, "reason": f"Validation timeout after {validation_timeout} seconds - evidence rejected. Use adjust_validation_timeout tool if your system needs more time."}
     except Exception as e:
         return {"valid": False, "reason": f"Validation error - evidence rejected: {str(e)}"}
 
@@ -802,6 +805,18 @@ async def handle_list_tools() -> List[Tool]:
                     "criteria_mapping": {"type": "string", "description": "How each piece of evidence maps to specific completion criteria"}
                 },
                 "required": ["task_id", "evidence", "verification_steps", "criteria_mapping"]
+            }
+        ),
+        Tool(
+            name="adjust_validation_timeout",
+            description="Request to adjust the evidence validation timeout for slower systems",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "timeout_seconds": {"type": "number", "description": "New timeout in seconds (minimum 10, maximum 120)"},
+                    "reason": {"type": "string", "description": "Reason for timeout adjustment"}
+                },
+                "required": ["timeout_seconds", "reason"]
             }
         ),
         Tool(
@@ -1475,6 +1490,29 @@ Tasks cannot be marked as completed using `update_task_status`.
             
             response += f"**🎉 Task Automatically Completed!**\n"
             response += f"The task has been marked as completed after successful verification."
+            
+            return [TextContent(type="text", text=response)]
+        
+        elif name == "adjust_validation_timeout":
+            global validation_timeout
+            
+            timeout_seconds = arguments["timeout_seconds"]
+            reason = arguments["reason"]
+            
+            # Validate timeout range
+            if timeout_seconds < 10:
+                return [TextContent(type="text", text="❌ Minimum timeout is 10 seconds")]
+            if timeout_seconds > 120:
+                return [TextContent(type="text", text="❌ Maximum timeout is 120 seconds")]
+            
+            old_timeout = validation_timeout
+            validation_timeout = int(timeout_seconds)
+            
+            response = f"✅ **Validation Timeout Adjusted**\n\n"
+            response += f"🕐 **Changed:** {old_timeout}s → {validation_timeout}s\n"
+            response += f"📝 **Reason:** {reason}\n\n"
+            response += f"🔧 **Effect:** Future evidence validation will use {validation_timeout}s timeout\n"
+            response += f"⚡ **No restart required** - change is immediate"
             
             return [TextContent(type="text", text=response)]
         
