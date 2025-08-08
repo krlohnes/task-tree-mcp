@@ -167,16 +167,16 @@ def validate_evidence_with_claude_code(task_title: str, task_description: str, c
     import subprocess
     
     # Create the validation prompt
-    validation_prompt = f"""You are an EXTREMELY STRICT evidence validator for a task management system.
+    validation_prompt = f"""You are a STRICT evidence validator for a task management system.
 
 VALIDATION REQUIREMENTS:
-1. Evidence must be SPECIFIC and DETAILED
-2. Actual test commands and the overall test success or failure
-3. NO VAGUE CLAIMS like 'successfully completed' or 'tests pass'
-4. Evidence must clearly map to the success criteria
-5. Must include actual filenames, commands, or error messages
+1. Evidence should be specific and detailed
+2. For test-related tasks, include test commands and overall success/failure
+3. Avoid vague claims like 'successfully completed' or 'tests pass' without context
+4. Evidence should map to the success criteria
+5. Include relevant details like filenames, commands, or key outcomes when applicable
 
-BE RUTHLESS. REJECT VAGUE EVIDENCE. DEMAND SPECIFICS.
+REJECT VAGUE EVIDENCE. REQUIRE REASONABLE SPECIFICS.
 
 ACCEPTABLE EVIDENCE EXAMPLE:
 "Ran: python3 test_calculator.py
