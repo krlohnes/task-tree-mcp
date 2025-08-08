@@ -1417,7 +1417,6 @@ Tasks cannot be marked as completed using `update_task_status`.
                 # Evidence accepted - auto-complete the task
                 task.mark_completed()
                 graph.update_task(task)
-                save_verification_sessions_to_db()
                 
                 response = f"✅ **Evidence Accepted - Task Completed!**\n\n"
                 response += f"🎯 **Task:** {task.title}\n"
