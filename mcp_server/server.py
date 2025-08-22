@@ -137,28 +137,20 @@ def detect_test_related_task(task_title: str, task_description: str, evidence: s
 
 
 def generate_test_execution_reminder() -> str:
-    """Generate MANDATORY reminder about test execution for test-related tasks."""
+    """Generate optional guidance about test evidence for test-related tasks."""
     return """
-🚨 **TEST EXECUTION EVIDENCE MANDATORY**
-This task involves tests. Your evidence is REQUIRED to include ALL of the following:
-• PROOF that tests were executed (command + output)  
-• EXACT test results showing pass/fail status
-• COMPLETE command used to run tests
-• ACTUAL test output, not summaries
+💡 **Test Evidence Guidance**
+If your task involved writing or running automated tests, your evidence should include:
+• The command you used to run tests
+• Test results showing pass/fail counts
+• Specific output from the test runner
 
-**EVIDENCE WILL BE REJECTED if it lacks:**
-- Specific test execution commands
-- Actual test output/results
-- Pass/fail counts and details
+**Example of helpful evidence:**
+"Executed: pytest test_feature.py
+Output: 3 passed, 0 failed
+Details: test_basic_functionality PASSED, test_edge_cases PASSED, test_error_handling PASSED"
 
-**EXAMPLE OF ACCEPTABLE EVIDENCE:**
-"Executed command: pytest test_feature.py
-Output showed: 3 passed, 0 failed
-Specific results: test_basic_functionality PASSED, test_edge_cases PASSED, test_error_handling PASSED"
-
-**UNACCEPTABLE:** "Tests pass" or "All tests successful" or other vague claims.
-
-**NO EXCUSES FOR FAILING TESTS. FAILING TESTS MUST BE FIXED OR I WILL NOT ACCEPT THE EVIDENCE.**
+This helps verify that automated tests were actually executed and provides concrete results.
 """
 
 
