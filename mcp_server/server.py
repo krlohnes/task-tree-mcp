@@ -24,7 +24,7 @@ def load_config() -> Dict[str, Any]:
         # Default configuration
         return {
             "verification": {
-                "enabled": True,
+                "enabled": False,
                 "timeout_seconds": 30,
                 "require_evidence_for_trivial": False,
                 "auto_accept_verification": False

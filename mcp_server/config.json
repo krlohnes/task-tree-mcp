@@ -1,0 +1,19 @@
+{
+  "verification": {
+    "enabled": false,
+    "timeout_seconds": 30,
+    "require_evidence_for_trivial": false,
+    "auto_accept_verification": false
+  },
+  "server": {
+    "name": "task-tree",
+    "version": "1.0.0",
+    "database_path": "tasks.db"
+  },
+  "features": {
+    "hierarchical_suggestions": true,
+    "pattern_detection": true,
+    "test_guidance": true,
+    "claude_code_validation": true
+  }
+}
