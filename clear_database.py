@@ -56,8 +56,10 @@ def clear_database(db_path: Path):
             except sqlite3.Error as e:
                 print(f"⚠️ Warning: Could not clear table {table_name}: {e}")
         
-        # Reset auto-increment counters
-        cursor.execute("DELETE FROM sqlite_sequence")
+        # Reset auto-increment counters (only if the table exists)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'")
+        if cursor.fetchone():
+            cursor.execute("DELETE FROM sqlite_sequence")
         
         # Commit changes
         conn.commit()

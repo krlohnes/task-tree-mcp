@@ -105,6 +105,22 @@ class SecureTaskTreeInstaller:
             }
         ]
         
+        # Configure SessionStart hook for task lineage alignment
+        task_lineage_hook = self.project_root / "security_hooks" / "task_lineage_alignment.sh"
+        os.chmod(task_lineage_hook, 0o755)
+        
+        settings["hooks"]["SessionStart"] = [
+            {
+                "matcher": "compact",  # Only trigger on compact sessions
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": str(task_lineage_hook)
+                    }
+                ]
+            }
+        ]
+        
         
         # Write updated settings
         with open(claude_settings_file, 'w') as f:
@@ -112,6 +128,7 @@ class SecureTaskTreeInstaller:
         
         print(f"✅ Claude Code settings updated: {claude_settings_file}")
         print("📋 PostToolUse hook configured for all tools")
+        print("🎯 SessionStart hook configured for task lineage alignment")
     
     def configure_claude_applications(self):
         """Configure Claude Desktop and/or Claude Code with MCP server."""
@@ -234,6 +251,8 @@ Files:
         print("  • Vague evidence detection and blocking")
         print("  • 🚨 MANDATORY Stop/SubagentStop enforcement hooks")
         print("  • Session completion blocked until MCP compliance verified")
+        print("  • 🎯 Task lineage alignment check on session start (compact mode)")
+        print("  • Context drift prevention through hierarchical task tracking")
         print()
         print("⚠️ IMPORTANT:")
         print("  • Restart Claude Desktop/Claude Code to activate hooks")
